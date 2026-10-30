@@ -1,0 +1,78 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function circleDoc(circleId) {
+      return get(/databases/$(database)/documents/circles/$(circleId));
+    }
+
+    function isCircleOwner(circleId) {
+      return signedIn()
+        && circleDoc(circleId).data.ownerUid == request.auth.uid;
+    }
+
+    function isCircleMember(circleId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/circles/$(circleId)/members/$(request.auth.uid));
+    }
+
+    function ownerUidImmutable() {
+      return !('ownerUid' in request.resource.data)
+        || request.resource.data.ownerUid == resource.data.ownerUid;
+    }
+
+    // Primary circle document — circleId is the Firestore document id (app PK).
+    match /circles/{circleId} {
+      allow read: if isCircleMember(circleId) || isCircleOwner(circleId);
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['ownerUid', 'timezone'])
+        && request.resource.data.timezone is string
+        && request.resource.data.timezone.size() > 0;
+
+      allow update: if isCircleOwner(circleId)
+        && ownerUidImmutable()
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow delete: if isCircleOwner(circleId);
+
+      match /members/{uid} {
+        allow read: if isCircleMember(circleId) || isCircleOwner(circleId);
+
+        // Owner row is created by trusted Cloud Function or owner on circle create flow.
+        allow create: if signedIn()
+          && (
+            (uid == request.auth.uid
+              && request.resource.data.role == 'owner'
+              && circleDoc(circleId).data.ownerUid == request.auth.uid)
+            || (isCircleOwner(circleId) && request.resource.data.role == 'member')
+          );
+
+        allow update: if signedIn()
+          && uid == request.auth.uid
+          && resource.data.role == request.resource.data.role
+          && !(resource.data.role == 'owner' && request.resource.data.role == 'member');
+
+        allow delete: if signedIn()
+          && (uid == request.auth.uid || isCircleOwner(circleId));
+      }
+
+      // App reminder documents — members read; owner writes (preserve existing client sync).
+      match /reminders/{itemId} {
+        allow read: if isCircleMember(circleId);
+        allow write: if isCircleOwner(circleId);
+      }
+
+      match /updates/{updateId} {
+        allow read: if isCircleMember(circleId);
+        allow create: if isCircleMember(circleId);
+        allow update, delete: if false;
+      }
+    }
+  }
+}

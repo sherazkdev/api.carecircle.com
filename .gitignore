@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+.DS_Store
+firebase-service-account.json
+tests/fixtures/firebase-service-account.json
+.vscode/
+.idea/

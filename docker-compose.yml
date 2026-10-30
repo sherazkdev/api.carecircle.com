@@ -1,0 +1,90 @@
+# Production-oriented Compose.
+# Mongo is NOT published to the host by default.
+# Mount Firebase credentials; never bake them into the image.
+#
+# Usage:
+#   docker compose up -d --build
+# Dev with published Mongo: docker compose --profile dev-ports up -d
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - care_circle_mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No host ports by default — only reachable on the compose network.
+
+  mongo-dev-ports:
+    profiles: ['dev-ports']
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - care_circle_mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    ports:
+      - '${API_HOST_PORT:-3000}:3000'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PROCESS_MODE: api
+      DELIVERY_MODE: fcm
+      MONGODB_URI: mongodb://mongo:27017/care_circle
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-service-account.json
+      PORT: '3000'
+    volumes:
+      - ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:-./firebase-service-account.json}:/run/secrets/firebase-service-account.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:3000/health/ready']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PROCESS_MODE: worker
+      DELIVERY_MODE: fcm
+      MONGODB_URI: mongodb://mongo:27017/care_circle
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-service-account.json
+      # Worker does not expose HTTP; PORT unused but env validation may still load defaults.
+      PORT: '3001'
+    volumes:
+      - ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:-./firebase-service-account.json}:/run/secrets/firebase-service-account.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+    # Single worker replica by default — claim lease prevents dual-claim; avoid scaling
+    # until you intentionally run multiple claimers.
+
+volumes:
+  care_circle_mongo_data:

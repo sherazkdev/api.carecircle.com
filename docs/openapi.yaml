@@ -1,0 +1,377 @@
+openapi: 3.0.3
+info:
+  title: Care Circle Reminders API
+  version: 5.0.0
+  description: |
+    Implemented backend contract (Spec v5 + approved overrides C1–C5).
+    Success envelope `{ "ok": true, "data": ... }`. Errors `{ "ok": false, "error": { "code", "message", "details?" } }`.
+    Flutter must not call internal issuer routes or embed issuer secrets.
+servers:
+  - url: https://api.example.com
+    description: Production (replace with your VPS hostname)
+  - url: http://localhost:3000
+    description: Local API
+tags:
+  - name: Health
+  - name: Internal
+  - name: Circles
+  - name: Devices
+  - name: Members
+  - name: Reminders
+  - name: Updates
+  - name: Account
+security:
+  - bearerAuth: []
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      security: []
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Process up
+  /health/ready:
+    get:
+      tags: [Health]
+      security: []
+      summary: Readiness (Mongo + Firebase Admin)
+      responses:
+        '200':
+          description: Ready
+        '503':
+          description: Degraded
+  /health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Legacy combined health
+      responses:
+        '200':
+          description: ok or degraded
+  /v1/internal/circle-create-tokens:
+    post:
+      tags: [Internal]
+      security: []
+      summary: Mint P2 circle create token (trusted issuer only)
+      parameters:
+        - in: header
+          name: X-Issuer-Api-Key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [circleId, ownerUid]
+              properties:
+                circleId:
+                  type: string
+                ownerUid:
+                  type: string
+                timezone:
+                  type: string
+                ttlSeconds:
+                  type: integer
+      responses:
+        '200':
+          description: Token issued
+        '401':
+          description: Invalid issuer key
+        '503':
+          description: Issuer disabled or rate limited
+  /v1/circles/{circleId}/devices:
+    post:
+      tags: [Devices]
+      summary: Register FCM token for circle
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fcmToken, platform, displayName]
+              properties:
+                fcmToken:
+                  type: string
+                platform:
+                  type: string
+                  enum: [android, ios, web]
+                role:
+                  type: string
+                  description: Ignored for authorization (C2)
+                displayName:
+                  type: string
+                timezone:
+                  type: string
+                ownershipProof:
+                  type: string
+                  description: Required for first-time circle bootstrap when enabled
+      responses:
+        '200':
+          description: Registered
+        '403':
+          description: Not a member / join required
+        '503':
+          description: Bootstrap not activated
+  /v1/circles/{circleId}/members/me/prefs:
+    put:
+      tags: [Members]
+      summary: Update notification toggles
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                medication:
+                  type: boolean
+                appointment:
+                  type: boolean
+                task:
+                  type: boolean
+                updates:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+  /v1/circles/{circleId}/invites:
+    post:
+      tags: [Circles]
+      summary: Create invite token (owner)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttlSeconds:
+                  type: integer
+      responses:
+        '200':
+          description: inviteToken returned
+        '403':
+          description: Not owner
+  /v1/circles/{circleId}/join:
+    post:
+      tags: [Circles]
+      summary: Join circle with invite proof
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inviteToken]
+              properties:
+                inviteToken:
+                  type: string
+                displayName:
+                  type: string
+      responses:
+        '200':
+          description: Joined
+        '409':
+          description: Invalid or consumed invite
+  /v1/circles/{circleId}:
+    delete:
+      tags: [Circles]
+      summary: Delete circle (owner)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+      responses:
+        '200':
+          description: deleted true/false (idempotent)
+  /v1/circles/{circleId}/reminders/{module}/{itemId}:
+    put:
+      tags: [Reminders]
+      summary: Upsert schedule (owner)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+        - name: module
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [medication, appointment, task]
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Upserted
+    delete:
+      tags: [Reminders]
+      summary: Delete reminder item (owner)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+        - name: module
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [medication, appointment, task]
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+  /v1/circles/{circleId}/reminders/medication/{itemId}/completion:
+    put:
+      tags: [Reminders]
+      summary: Mark dose complete/undo (owner only — C1)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [occurrenceKey, completed]
+              properties:
+                occurrenceKey:
+                  type: string
+                completed:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+  /v1/circles/{circleId}/reminders/appointment/{itemId}/status:
+    put:
+      tags: [Reminders]
+      summary: Appointment status (owner only — C1)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+        - name: itemId
+          in: path
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [active, completed]
+      responses:
+        '200':
+          description: Updated
+  /v1/circles/{circleId}/reminders/task/{itemId}/status:
+    put:
+      tags: [Reminders]
+      summary: Task status (owner only — C1)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+        - name: itemId
+          in: path
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [active, completed]
+      responses:
+        '200':
+          description: Updated
+  /v1/circles/{circleId}/updates:
+    post:
+      tags: [Updates]
+      summary: Share update (any member)
+      parameters:
+        - $ref: '#/components/parameters/circleId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [updateType]
+              properties:
+                updateType:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Posted
+  /v1/members/me:
+    delete:
+      tags: [Account]
+      summary: Leave all circles / account cleanup
+      parameters:
+        - name: confirm
+          in: query
+          schema:
+            type: string
+            enum: ['true']
+      responses:
+        '200':
+          description: Removed
+        '409':
+          description: Owner still has circles (C4)
+  /v1/members/{uid}:
+    delete:
+      tags: [Account]
+      summary: Owner removes member
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: circleId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Removed
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token
+  parameters:
+    circleId:
+      name: circleId
+      in: path
+      required: true
+      schema:
+        type: string

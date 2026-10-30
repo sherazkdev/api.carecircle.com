@@ -1,0 +1,172 @@
+{
+  "info": {
+    "name": "Care Circle Reminders API",
+    "description": "Matches implemented routes in src/routes/v1.ts. Set collection variables before use.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "firebaseIdToken", "value": "" },
+    { "key": "circleId", "value": "your-circle-id" },
+    { "key": "issuerApiKey", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health/ready",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/health/ready"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Internal (ops / Cloud Functions only)",
+      "item": [
+        {
+          "name": "POST /v1/internal/circle-create-tokens",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "X-Issuer-Api-Key", "value": "{{issuerApiKey}}" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"circleId\": \"{{circleId}}\",\n  \"ownerUid\": \"firebase-uid\",\n  \"timezone\": \"Asia/Karachi\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/internal/circle-create-tokens"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Circles",
+      "item": [
+        {
+          "name": "POST /v1/circles/:circleId/devices",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"device-fcm-token\",\n  \"platform\": \"android\",\n  \"displayName\": \"Test User\",\n  \"timezone\": \"Asia/Karachi\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/devices"
+          }
+        },
+        {
+          "name": "POST /v1/circles/:circleId/invites",
+          "request": {
+            "method": "POST",
+            "body": { "mode": "raw", "raw": "{ \"ttlSeconds\": 3600 }" },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/invites"
+          }
+        },
+        {
+          "name": "POST /v1/circles/:circleId/join",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"inviteToken\": \"paste-invite-token\",\n  \"displayName\": \"Member Name\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/join"
+          }
+        },
+        {
+          "name": "DELETE /v1/circles/:circleId",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Members",
+      "item": [
+        {
+          "name": "PUT /v1/circles/:circleId/members/me/prefs",
+          "request": {
+            "method": "PUT",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medication\": true,\n  \"appointment\": true,\n  \"task\": true,\n  \"updates\": true\n}"
+            },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/members/me/prefs"
+          }
+        },
+        {
+          "name": "DELETE /v1/members/me",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/v1/members/me?confirm=true"
+          }
+        },
+        {
+          "name": "DELETE /v1/members/:uid",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/v1/members/target-uid?circleId={{circleId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reminders",
+      "item": [
+        {
+          "name": "PUT medication upsert",
+          "request": {
+            "method": "PUT",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Paracetamol\",\n  \"scheduleMode\": \"daily\",\n  \"times\": [\"08:00\"],\n  \"startDate\": \"2026-10-28\",\n  \"reminderEnabled\": true,\n  \"notifyFamilyOnMiss\": true,\n  \"leadTimeMinutes\": 10,\n  \"snoozeMinutes\": 5\n}"
+            },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/reminders/medication/med-1"
+          }
+        },
+        {
+          "name": "PUT medication completion",
+          "request": {
+            "method": "PUT",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"occurrenceKey\": \"2026-10-28-8-0\",\n  \"completed\": true\n}"
+            },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/reminders/medication/med-1/completion"
+          }
+        },
+        {
+          "name": "DELETE reminder item",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/reminders/medication/med-1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Updates",
+      "item": [
+        {
+          "name": "POST /v1/circles/:circleId/updates",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"updateType\": \"general\",\n  \"notes\": \"Update text\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/circles/{{circleId}}/updates"
+          }
+        }
+      ]
+    }
+  ]
+}
