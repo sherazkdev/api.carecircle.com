@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ubuntu VPS bootstrap: Docker, Nginx, firewall, HTTP site, Compose on host port 1001.
+# Native VPS bootstrap (no Docker): Node 22, MongoDB, Nginx, firewall.
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-carecircle.smartremindersapp.com}"
@@ -16,13 +16,30 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg git ufw nginx certbot python3-certbot-nginx
+  ca-certificates curl gnupg git ufw nginx certbot python3-certbot-nginx \
+  build-essential
 
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
+if ! command -v node >/dev/null 2>&1 || ! node -v | grep -Eq '^v(2[0-9]|[3-9][0-9])'; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
 fi
 
-usermod -aG docker "${SUDO_USER:-root}" || true
+if ! command -v mongod >/dev/null 2>&1; then
+  . /etc/os-release
+  CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-jammy}}"
+  case "${CODENAME}" in
+    noble|oracular|plucky) MONGO_SUITE="jammy" ;;
+    *) MONGO_SUITE="${CODENAME}" ;;
+  esac
+  curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc \
+    | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+  echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${MONGO_SUITE}/mongodb-org/7.0 multiverse" \
+    > /etc/apt/sources.list.d/mongodb-org-7.0.list
+  apt-get update
+  apt-get install -y mongodb-org
+fi
+
+systemctl enable --now mongod || systemctl enable --now mongodb
 
 mkdir -p /var/www/certbot "${SECRETS_DIR}"
 chmod 700 "${SECRETS_DIR}"
@@ -45,8 +62,9 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-echo "HTTP Nginx site '${SITE_NAME}' is ready for ${DOMAIN}."
+echo "Native setup ready (no Docker)."
+echo "Node: $(node -v)  npm: $(npm -v)"
 echo "App folder: ${APP_DIR}"
-echo "Next: clone repo if missing, copy .env + Firebase JSON, then:"
+echo "Next:"
 echo "  sudo bash ${APP_DIR}/deploy/deploy.sh"
 echo "  sudo bash ${APP_DIR}/deploy/install-ssl.sh"

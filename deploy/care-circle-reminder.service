@@ -1,0 +1,18 @@
+[Unit]
+Description=Care Circle Reminder API
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/care-circle-reminder
+EnvironmentFile=/var/www/care-circle-reminder/.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

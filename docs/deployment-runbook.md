@@ -59,8 +59,8 @@ Cloud Functions (Firebase console / CLI secrets): issuer URL, `CIRCLE_TOKEN_ISSU
 
 ```bash
 cd /var/www/care-circle-reminder
-docker compose up -d --build
-docker compose ps
+sudo bash deploy/setup-vps.sh
+sudo bash deploy/deploy.sh
 curl -fsS http://127.0.0.1:1001/health/ready
 ```
 
