@@ -30,10 +30,10 @@ Related: `docs/production-deployment.md`, `docs/production-checklist.md`, `.env.
 On the VPS:
 
 ```bash
-mkdir -p /opt/care-circle/secrets
-chmod 700 /opt/care-circle/secrets
+mkdir -p /opt/care-circle-reminder/secrets
+chmod 700 /opt/care-circle-reminder/secrets
 # Copy firebase-service-account.json here
-nano /opt/care-circle/.env   # from .env.example
+nano /opt/care-circle-reminder/.env   # from deploy/env.production.example
 ```
 
 Required variables (see `src/config/env.ts`):
@@ -58,11 +58,10 @@ Cloud Functions (Firebase console / CLI secrets): issuer URL, `CIRCLE_TOKEN_ISSU
 ## 4. Build and start
 
 ```bash
-cd /opt/care-circle/app   # git clone or rsync repository
-docker build -t care-circle-api:prod --target production .
+cd /opt/care-circle-reminder
 docker compose up -d --build
 docker compose ps
-curl -fsS http://127.0.0.1:3000/health/ready
+curl -fsS http://127.0.0.1:1001/health/ready
 ```
 
 Expected ready JSON includes Mongo and Firebase checks passing.
@@ -71,27 +70,27 @@ Expected ready JSON includes Mongo and Firebase checks passing.
 
 ## 5. HTTPS reverse proxy
 
-Expose only **443 → api:3000**. Do not publish MongoDB to the internet.
+Production domain: **carecircle.smartremindersapp.com**  
+Host API bind: **127.0.0.1:1001** (Compose maps `1001 → container :3000`).  
+Public ports: **80 / 443 only**. Do not publish MongoDB or 1001 to the internet.
 
-Example nginx location:
+Ready-made files:
 
-```nginx
-location / {
-  proxy_pass http://127.0.0.1:3000;
-  proxy_set_header Host $host;
-  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-  proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
+- `deploy/nginx/care-circle-reminder.http.conf` — ACME + HTTP proxy
+- `deploy/nginx/care-circle-reminder.ssl.conf` — TLS → `127.0.0.1:1001`
+- Nginx site name: `care-circle-reminder`
+- `deploy/setup-vps.sh` — Docker, Nginx, UFW
+- `deploy/deploy.sh` — `docker compose up` + ready check
+- `deploy/install-ssl.sh` — Let's Encrypt for the domain
 
-Flutter `baseUrl` = `https://your-api.example.com` (no trailing slash).
+Flutter `baseUrl` = `https://carecircle.smartremindersapp.com` (no trailing slash).
 
 ---
 
 ## 6. Firewall
 
-- Allow: 22 (SSH, restricted IP), 443 (HTTPS)
-- Deny: 27017, 3000 from public (API only via proxy on localhost)
+- Allow: 22 (SSH, restricted IP), 80 (ACME), 443 (HTTPS)
+- Deny: 27017, 1001, 3000 from public (API only via Nginx on localhost:1001)
 
 ---
 

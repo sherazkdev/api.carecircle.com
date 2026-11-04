@@ -5,6 +5,8 @@ dist
 .env.*
 !.env.example
 firebase-service-account.json
+*firebase-adminsdk*.json
+deploy
 **/*.md
 coverage
 .vscode

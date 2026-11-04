@@ -5,6 +5,7 @@ coverage/
 *.log
 .DS_Store
 firebase-service-account.json
+*firebase-adminsdk*.json
 tests/fixtures/firebase-service-account.json
 .vscode/
 .idea/

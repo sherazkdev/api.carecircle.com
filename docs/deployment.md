@@ -12,7 +12,7 @@ Copy `.env.example` → `.env` and set:
 | `FIREBASE_PROJECT_ID` | Firebase project |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | Path to service-account JSON **or** |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Raw JSON secret (do not log) |
-| `PORT` | HTTP port (default 3000) |
+| `PORT` | HTTP port inside the process (default 3000; VPS host publish is 1001) |
 | `MISS_GRACE_MINUTES` | Approved default `0` (C5) |
 | `PROCESS_MODE` | `api` \| `worker` \| `all` (worker unused until Phase 6) |
 

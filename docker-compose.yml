@@ -40,7 +40,7 @@ services:
       target: production
     restart: unless-stopped
     ports:
-      - '${API_HOST_PORT:-3000}:3000'
+      - '127.0.0.1:${API_HOST_PORT:-1001}:3000'
     env_file:
       - .env
     environment:

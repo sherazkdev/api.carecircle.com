@@ -33,7 +33,7 @@ Secrets are **not** copied into the image (see `.dockerignore`). Mount Firebase 
 docker compose up -d --build
 ```
 
-- API: `http://localhost:3000` (override `API_HOST_PORT`)
+- API host port: `http://127.0.0.1:1001` (override `API_HOST_PORT`; Nginx TLS domain `carecircle.smartremindersapp.com`)
 - Mongo: internal DNS `mongo:27017` only
 - Dev host Mongo port: `docker compose --profile dev-ports up -d`
 
