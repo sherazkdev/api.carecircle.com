@@ -1,7 +1,6 @@
 [Unit]
 Description=Care Circle Reminder API
-After=network.target mongod.service
-Wants=mongod.service
+After=network.target
 
 [Service]
 Type=simple
