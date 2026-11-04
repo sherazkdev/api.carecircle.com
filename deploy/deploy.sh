@@ -2,9 +2,9 @@
 # Build and start API + worker + Mongo. Host API port is 1001 (Nginx upstream).
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/opt/care-circle-reminder}"
-SECRETS_DIR="${SECRETS_DIR:-/opt/care-circle-reminder/secrets}"
-ENV_FILE="${ENV_FILE:-/opt/care-circle-reminder/.env}"
+APP_DIR="${APP_DIR:-/var/www/care-circle-reminder}"
+SECRETS_DIR="${SECRETS_DIR:-/var/www/care-circle-reminder/secrets}"
+ENV_FILE="${ENV_FILE:-/var/www/care-circle-reminder/.env}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root: sudo bash deploy/deploy.sh"

@@ -4,8 +4,8 @@ set -euo pipefail
 
 DOMAIN="${DOMAIN:-carecircle.smartremindersapp.com}"
 SITE_NAME="${SITE_NAME:-care-circle-reminder}"
-APP_DIR="${APP_DIR:-/opt/care-circle-reminder}"
-SECRETS_DIR="${SECRETS_DIR:-/opt/care-circle-reminder/secrets}"
+APP_DIR="${APP_DIR:-/var/www/care-circle-reminder}"
+SECRETS_DIR="${SECRETS_DIR:-/var/www/care-circle-reminder/secrets}"
 NGINX_SITE="/etc/nginx/sites-available/${SITE_NAME}"
 
 if [[ "$(id -u)" -ne 0 ]]; then

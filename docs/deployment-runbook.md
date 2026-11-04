@@ -30,10 +30,10 @@ Related: `docs/production-deployment.md`, `docs/production-checklist.md`, `.env.
 On the VPS:
 
 ```bash
-mkdir -p /opt/care-circle-reminder/secrets
-chmod 700 /opt/care-circle-reminder/secrets
+mkdir -p /var/www/care-circle-reminder/secrets
+chmod 700 /var/www/care-circle-reminder/secrets
 # Copy firebase-service-account.json here
-nano /opt/care-circle-reminder/.env   # from deploy/env.production.example
+nano /var/www/care-circle-reminder/.env   # from deploy/env.production.example
 ```
 
 Required variables (see `src/config/env.ts`):
@@ -58,7 +58,7 @@ Cloud Functions (Firebase console / CLI secrets): issuer URL, `CIRCLE_TOKEN_ISSU
 ## 4. Build and start
 
 ```bash
-cd /opt/care-circle-reminder
+cd /var/www/care-circle-reminder
 docker compose up -d --build
 docker compose ps
 curl -fsS http://127.0.0.1:1001/health/ready
