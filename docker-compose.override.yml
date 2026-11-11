@@ -1,0 +1,25 @@
+# Local development: API + Mongo only (loaded automatically by Compose).
+# Overrides production-oriented service env and uses a dedicated local data volume.
+
+services:
+  mongo:
+    ports:
+      - '127.0.0.1:27018:27017'
+    volumes:
+      - care_circle_mongo_local:/data/db
+
+  worker:
+    environment:
+      NODE_ENV: development
+      DELIVERY_MODE: noop
+      LOG_LEVEL: info
+
+  api:
+    environment:
+      NODE_ENV: development
+      PROCESS_MODE: api
+      DELIVERY_MODE: noop
+      LOG_LEVEL: info
+
+volumes:
+  care_circle_mongo_local:

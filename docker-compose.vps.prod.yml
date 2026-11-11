@@ -1,0 +1,56 @@
+# VPS production — explicit -f only (no docker-compose.override.yml).
+# API: published on loopback for Nginx. Worker: scheduler only, no host ports.
+#
+#   docker compose -f docker-compose.vps.prod.yml up -d --build
+#   docker compose -f docker-compose.vps.prod.yml up -d worker   # after API image exists
+
+name: care-circle-reminder
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: care-circle-reminder-api:latest
+    container_name: care-circle-reminder-docker-api
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${API_DOCKER_HOST_PORT:-3113}:3000'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PROCESS_MODE: api
+      PORT: '3000'
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-service-account.json
+    volumes:
+      - ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:-./secrets/firebase-service-account.json}:/run/secrets/firebase-service-account.json:ro
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:3000/health/ready']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  worker:
+    image: care-circle-reminder-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: care-circle-reminder-docker-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PROCESS_MODE: worker
+      DELIVERY_MODE: fcm
+      PORT: '3001'
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-service-account.json
+    volumes:
+      - ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:-./secrets/firebase-service-account.json}:/run/secrets/firebase-service-account.json:ro
+    # Worker has no HTTP listener; rely on logs + restart policy (see server.ts SIGTERM → stopSchedulerWorker).
+    healthcheck:
+      disable: true

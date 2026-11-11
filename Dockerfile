@@ -6,8 +6,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 FROM base AS deps
+# Install devDependencies for the build stage (base sets NODE_ENV=production).
+ENV NODE_ENV=development
 COPY package.json package-lock.json ./
-RUN npm ci
+# Lockfile is authored with npm 11+; bookworm-slim ships npm 10.
+RUN npm install -g npm@11 \
+  && npm ci
 
 FROM deps AS development
 ENV NODE_ENV=development
