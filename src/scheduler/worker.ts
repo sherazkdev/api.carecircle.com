@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../config/logger.js';
-import { claimNextJob } from './claimJobs.js';
+import { claimNextJob, findNextWakeAt } from './claimJobs.js';
 import { getClock } from './clock.js';
+import { delayUntilNextFire } from './pollDelay.js';
 import { processClaimedJob } from './processJob.js';
 
 export type SchedulerWorkerOptions = {
   workerId?: string;
+  /**
+   * Longest sleep between checks for newly inserted jobs.
+   * A job that is already queued is claimed at its fireAt, not on this interval.
+   */
   pollIntervalMs?: number;
   /** Max jobs to process per tick (avoid starving other work). */
   batchSize?: number;
@@ -23,7 +28,9 @@ export class SchedulerWorker {
 
   constructor(options: SchedulerWorkerOptions = {}) {
     this.workerId = options.workerId ?? `worker-${randomUUID()}`;
-    this.pollIntervalMs = options.pollIntervalMs ?? Number(process.env.SCHEDULER_POLL_INTERVAL_MS ?? 60_000);
+    const fromEnv = Number(process.env.SCHEDULER_POLL_INTERVAL_MS);
+    this.pollIntervalMs =
+      options.pollIntervalMs ?? (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 1_000);
     this.batchSize = options.batchSize ?? 50;
   }
 
@@ -37,18 +44,14 @@ export class SchedulerWorker {
       { workerId: this.workerId, pollIntervalMs: this.pollIntervalMs },
       'scheduler worker started',
     );
-    void this.tick();
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.pollIntervalMs);
-    this.timer.unref?.();
+    void this.runLoop();
   }
 
   async stop(): Promise<void> {
     this.running = false;
     this.stopped = true;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
     // Wait briefly if a tick is in flight
@@ -90,6 +93,42 @@ export class SchedulerWorker {
       this.tickInFlight = false;
     }
     return processed;
+  }
+
+  /**
+   * Claim everything that is due, then sleep until the next fireAt
+   * (capped by pollIntervalMs so a newly saved reminder is still seen quickly).
+   */
+  private async runLoop(): Promise<void> {
+    if (this.stopped || !this.running) {
+      return;
+    }
+    await this.tick();
+    if (this.stopped || !this.running) {
+      return;
+    }
+    let nextReady: Date | null = null;
+    try {
+      nextReady = await findNextWakeAt(getClock().now());
+    } catch (err) {
+      getLogger().error(
+        { err: { message: err instanceof Error ? err.message : 'unknown' }, workerId: this.workerId },
+        'scheduler next-wake lookup failed',
+      );
+    }
+    if (this.stopped || !this.running) {
+      return;
+    }
+    // Clock after the lookup, so a slow query cannot push the send past fireAt.
+    const delay = delayUntilNextFire(
+      getClock().now().getTime(),
+      nextReady?.getTime() ?? null,
+      this.pollIntervalMs,
+    );
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.runLoop();
+    }, delay);
   }
 }
 

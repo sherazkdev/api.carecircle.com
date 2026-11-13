@@ -53,20 +53,8 @@ const memberSchema = new Schema(
 );
 
 memberSchema.index({ circleId: 1, uid: 1 }, { unique: true, name: 'uniq_circle_uid' });
-/** Non-unique: many ordinary members share role=member. */
+/** Many members, and more than one owner, can share a circle. */
 memberSchema.index({ circleId: 1, role: 1 }, { name: 'idx_circle_role' });
-/**
- * At most one owner per circle (partial unique).
- * Ordinary members are unaffected.
- */
-memberSchema.index(
-  { circleId: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { role: 'owner' },
-    name: 'uniq_circle_single_owner',
-  },
-);
 memberSchema.index({ uid: 1 }, { name: 'idx_uid' });
 
 export type MemberAttrs = InferSchemaType<typeof memberSchema>;

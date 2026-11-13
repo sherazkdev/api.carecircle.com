@@ -56,6 +56,61 @@ export async function claimNextJob(workerId: string, now = getClock().now()): Pr
   return claimed;
 }
 
+/**
+ * When the worker should next look for work.
+ * Returns `now` if a pending job is already claimable, otherwise the soonest
+ * future ready time (max of fireAt and nextAttemptAt). Null when the queue is idle.
+ */
+export async function findNextWakeAt(now = getClock().now()): Promise<Date | null> {
+  const dueNow = await Job.exists({
+    state: 'pending',
+    fireAt: { $lte: now },
+    $or: [
+      { nextAttemptAt: { $exists: false } },
+      { nextAttemptAt: null },
+      { nextAttemptAt: { $lte: now } },
+    ],
+  });
+  if (dueNow) {
+    return now;
+  }
+
+  const [byFire, byAttempt] = await Promise.all([
+    Job.findOne({
+      state: 'pending',
+      fireAt: { $gt: now },
+      $or: [
+        { nextAttemptAt: { $exists: false } },
+        { nextAttemptAt: null },
+        { nextAttemptAt: { $lte: now } },
+      ],
+    })
+      .sort({ fireAt: 1 })
+      .select({ fireAt: 1 })
+      .lean(),
+    Job.findOne({
+      state: 'pending',
+      nextAttemptAt: { $gt: now },
+    })
+      .sort({ nextAttemptAt: 1 })
+      .select({ fireAt: 1, nextAttemptAt: 1 })
+      .lean(),
+  ]);
+
+  let soonest: number | null = null;
+  if (byFire?.fireAt) {
+    soonest = new Date(byFire.fireAt).getTime();
+  }
+  if (byAttempt?.nextAttemptAt) {
+    const fireMs = byAttempt.fireAt ? new Date(byAttempt.fireAt).getTime() : 0;
+    const readyMs = Math.max(fireMs, new Date(byAttempt.nextAttemptAt).getTime());
+    if (readyMs > now.getTime() && (soonest == null || readyMs < soonest)) {
+      soonest = readyMs;
+    }
+  }
+  return soonest == null ? null : new Date(soonest);
+}
+
 export async function markJobSent(jobId: string): Promise<void> {
   await Job.findByIdAndUpdate(jobId, {
     $set: {

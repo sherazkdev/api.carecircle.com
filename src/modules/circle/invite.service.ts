@@ -3,20 +3,27 @@ import { DEFAULT_MEMBER_PREFS } from '../../shared/types/domain.js';
 import { conflict, forbidden, notFound } from '../../shared/errors/AppError.js';
 import { Member } from '../member/member.model.js';
 import { Circle } from './circle.model.js';
-import { signCircleInviteToken, verifyAndConsumeCircleInviteToken } from './inviteProof.js';
+import {
+  inspectCircleInviteToken,
+  signCircleInviteToken,
+  verifyAndConsumeCircleInviteToken,
+} from './inviteProof.js';
 
 export async function createCircleInvite(input: {
   circleId: string;
   actorUid: string;
   ttlSeconds?: number;
-}): Promise<{ inviteToken: string; circleId: string; expiresInSeconds: number }> {
+  role?: 'owner' | 'member';
+}): Promise<{ inviteToken: string; circleId: string; role: 'owner' | 'member'; expiresInSeconds: number }> {
   const circle = await Circle.findOne({ circleId: input.circleId }).lean();
   if (!circle) {
     throw notFound('Circle not found');
   }
-  if (circle.ownerUid !== input.actorUid) {
+  const actor = await Member.findOne({ circleId: input.circleId, uid: input.actorUid }).lean();
+  if (circle.ownerUid !== input.actorUid && actor?.role !== 'owner') {
     throw forbidden('Owner permission required');
   }
+  const role = input.role === 'owner' ? 'owner' : 'member';
 
   const maxTtl = getEnv().CIRCLE_INVITE_TOKEN_MAX_TTL_SECONDS;
   const expiresInSeconds = Math.min(
@@ -27,12 +34,14 @@ export async function createCircleInvite(input: {
   const token = await signCircleInviteToken({
     circleId: input.circleId,
     inviterUid: input.actorUid,
+    role,
     ttlSeconds: expiresInSeconds,
   });
 
   return {
     inviteToken: token,
     circleId: input.circleId,
+    role,
     expiresInSeconds,
   };
 }
@@ -45,7 +54,7 @@ export async function acceptCircleInvite(input: {
 }): Promise<{
   circleId: string;
   uid: string;
-  role: 'member';
+  role: 'owner' | 'member';
   displayName: string;
   created: boolean;
 }> {
@@ -56,12 +65,32 @@ export async function acceptCircleInvite(input: {
 
   const existing = await Member.findOne({ circleId: input.circleId, uid: input.uid }).lean();
   if (existing) {
-    // Idempotent accept for already-member — still consume? Spec: idempotent acceptance.
-    // Do not consume token if already a member so a shared link isn't burned by the owner re-joining.
+    let role: 'owner' | 'member' = existing.role === 'owner' ? 'owner' : 'member';
+    // Already in the circle: an owner invite can promote them without a second membership.
+    try {
+      const peeked = inspectCircleInviteToken(input.inviteToken);
+      if (
+        peeked.role === 'owner' &&
+        existing.role !== 'owner' &&
+        peeked.circleId === input.circleId
+      ) {
+        await verifyAndConsumeCircleInviteToken({
+          token: input.inviteToken,
+          expectedCircleId: input.circleId,
+        });
+        await Member.updateOne(
+          { circleId: input.circleId, uid: input.uid },
+          { $set: { role: 'owner' } },
+        );
+        role = 'owner';
+      }
+    } catch {
+      // Invalid token while already a member stays an idempotent accept.
+    }
     return {
       circleId: input.circleId,
       uid: input.uid,
-      role: 'member',
+      role,
       displayName: existing.displayName,
       created: false,
     };
@@ -71,23 +100,24 @@ export async function acceptCircleInvite(input: {
     throw conflict('Circle owner is already a member');
   }
 
-  await verifyAndConsumeCircleInviteToken({
+  const proof = await verifyAndConsumeCircleInviteToken({
     token: input.inviteToken,
     expectedCircleId: input.circleId,
   });
+  const joinedRole: 'owner' | 'member' = proof.role === 'owner' ? 'owner' : 'member';
 
   try {
     const member = await Member.create({
       circleId: input.circleId,
       uid: input.uid,
-      role: 'member',
+      role: joinedRole,
       displayName: input.displayName,
       prefs: { ...DEFAULT_MEMBER_PREFS },
     });
     return {
       circleId: member.circleId,
       uid: member.uid,
-      role: 'member',
+      role: joinedRole,
       displayName: member.displayName,
       created: true,
     };
@@ -103,7 +133,7 @@ export async function acceptCircleInvite(input: {
         return {
           circleId: again.circleId,
           uid: again.uid,
-          role: 'member',
+          role: again.role === 'owner' ? 'owner' : 'member',
           displayName: again.displayName,
           created: false,
         };

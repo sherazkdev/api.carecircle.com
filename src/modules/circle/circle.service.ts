@@ -1,6 +1,7 @@
 import { forbidden, notFound } from '../../shared/errors/AppError.js';
 import { deleteCircleCascade } from '../../shared/db/cascades.js';
 import { runWithOptionalTransaction } from '../../shared/db/transactions.js';
+import { actorIsOwner } from '../member/member.service.js';
 import { Circle } from './circle.model.js';
 
 export type DeleteCircleResult = {
@@ -47,7 +48,7 @@ export async function deleteCircleAsOwner(input: {
     };
   }
 
-  if (circle.ownerUid !== input.actorUid) {
+  if (!(await actorIsOwner(input.circleId, input.actorUid, circle.ownerUid))) {
     throw forbidden('Owner permission required');
   }
 
@@ -64,7 +65,7 @@ export async function deleteCircleAsOwner(input: {
         ...emptyCounts,
       };
     }
-    if (fresh.ownerUid !== input.actorUid) {
+    if (!(await actorIsOwner(input.circleId, input.actorUid, fresh.ownerUid))) {
       throw notFound('Circle not found');
     }
     const counts = await deleteCircleCascade(input.circleId, session);

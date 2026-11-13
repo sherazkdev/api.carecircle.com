@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
 import { badRequest, unauthorized } from '../../shared/errors/AppError.js';
 import { sendOk } from '../../shared/utils/response.js';
-import { deleteMyMemberships, ownerRemoveMember } from './account.service.js';
+import { deleteMyMemberships, ownerRemoveMember, unregisterMyDevice } from './account.service.js';
 
 export const deleteMe: RequestHandler = async (req, res, next) => {
   try {
@@ -14,6 +14,23 @@ export const deleteMe: RequestHandler = async (req, res, next) => {
       typeof circleIdRaw === 'string' && circleIdRaw.trim() ? circleIdRaw.trim() : undefined;
 
     const data = await deleteMyMemberships({ uid, circleId });
+    sendOk(res, data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteMyDevice: RequestHandler = async (req, res, next) => {
+  try {
+    const uid = req.auth?.uid;
+    if (!uid) {
+      throw unauthorized();
+    }
+    const fcmToken = (req.body as { fcmToken?: string }).fcmToken;
+    if (!fcmToken) {
+      throw badRequest('fcmToken is required');
+    }
+    const data = await unregisterMyDevice({ uid, fcmToken });
     sendOk(res, data);
   } catch (err) {
     next(err);

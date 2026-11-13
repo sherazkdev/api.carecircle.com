@@ -1,5 +1,6 @@
 import type { JobAudience, NotificationType, ReminderModule } from '../shared/types/domain.js';
 import { buildJobDedupeKey } from '../shared/utils/dedupeKey.js';
+import { getClock } from './clock.js';
 import { Job } from './job.model.js';
 
 export type PlannedJob = {
@@ -31,7 +32,18 @@ export async function insertPlannedJobs(jobs: PlannedJob[]): Promise<number> {
 
     const existing = await Job.findOne({ dedupeKey }).lean();
     if (existing) {
-      continue;
+      const nextFire = job.fireAt.getTime();
+      const prevFire = new Date(existing.fireAt).getTime();
+      const renewable = job.type.endsWith('_before') || job.type === 'med_snooze';
+      if (
+        renewable &&
+        prevFire !== nextFire &&
+        nextFire >= getClock().now().getTime()
+      ) {
+        await Job.deleteOne({ _id: existing._id });
+      } else {
+        continue;
+      }
     }
 
     try {

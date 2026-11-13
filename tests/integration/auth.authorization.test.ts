@@ -144,24 +144,22 @@ describe('Phase 3 auth and authorization', () => {
       });
     });
 
-    it('allows multiple ordinary members and one owner; owner may own multiple circles', async () => {
+    it('allows multiple members and multiple owners; founder may own multiple circles', async () => {
       await Member.create({
         circleId: 'circle-a',
         uid: 'member-2',
         role: 'member',
         displayName: 'Member Two',
       });
+      await Member.create({
+        circleId: 'circle-a',
+        uid: 'owner-2',
+        role: 'owner',
+        displayName: 'Second Owner',
+      });
       expect(await Member.countDocuments({ circleId: 'circle-a', role: 'member' })).toBe(2);
+      expect(await Member.countDocuments({ circleId: 'circle-a', role: 'owner' })).toBe(2);
       expect(await Circle.countDocuments({ ownerUid: 'owner-1' })).toBe(2);
-
-      await expect(
-        Member.create({
-          circleId: 'circle-a',
-          uid: 'intruder',
-          role: 'owner',
-          displayName: 'Fake Owner',
-        }),
-      ).rejects.toMatchObject({ code: 11000 });
     });
 
     it('rejects unauthorized user (not a member)', async () => {

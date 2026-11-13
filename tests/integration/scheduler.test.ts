@@ -252,31 +252,31 @@ describe('Phase 6 scheduler engine', () => {
     expect(types.includes('med_before')).toBe(false);
     expect(types.includes('med_due')).toBe(false);
     expect(types.includes('med_missed')).toBe(true);
-    expect(delivery.requests.find((r) => r.type === 'med_missed')?.recipients[0]?.uid).toBe(
-      'member-1',
-    );
+    const missedUids = delivery.requests
+      .find((r) => r.type === 'med_missed')
+      ?.recipients.map((r) => r.uid)
+      .sort();
+    expect(missedUids).toEqual(['member-1', 'owner-1']);
   });
 
-  it('skips completed medication occurrence and supports snooze cutoffs', async () => {
+  it('plans snoozes between remind-later and the dose, and completion cancels them', async () => {
     await upsertReminder({
       circleId: 'circle-1',
       module: 'medication',
       itemId: 'med-snooze',
-      body: { ...medBase, times: ['08:00'], snoozeMinutes: 5, leadTimeMinutes: 5 },
+      body: { ...medBase, times: ['09:00'], snoozeMinutes: 5, leadTimeMinutes: 15 },
     });
 
-    clock.set('2026-03-10T03:00:00.000Z');
-    setClock(clock);
-    await drainDue('snooze-w');
+    const snoozes = await Job.find({ itemId: 'med-snooze', type: 'med_snooze' }).sort({ fireAt: 1 }).lean();
+    expect(snoozes.map((j) => j.fireAt.toISOString())).toEqual([
+      '2026-03-10T03:50:00.000Z', // 08:50 PKT
+      '2026-03-10T03:55:00.000Z', // 08:55 PKT
+    ]);
+    const missed = await Job.findOne({ itemId: 'med-snooze', type: 'med_missed' }).lean();
+    expect(missed?.audience).toBe('members');
+    expect(missed?.fireAt.toISOString()).toBe('2026-03-10T04:00:00.000Z'); // 09:00 PKT
 
-    expect(delivery.requests.some((r) => r.type === 'med_due')).toBe(true);
-    expect(await Job.countDocuments({ itemId: 'med-snooze', type: 'med_snooze', state: 'pending' })).toBe(
-      1,
-    );
-
-    // Complete dose → cancel snooze
-    const dueKey = (await Job.findOne({ itemId: 'med-snooze', type: 'med_due' }).lean())!
-      .occurrenceKey;
+    const dueKey = (await Job.findOne({ itemId: 'med-snooze', type: 'med_due' }).lean())!.occurrenceKey;
     await setMedicationCompletion({
       circleId: 'circle-1',
       itemId: 'med-snooze',
@@ -294,7 +294,7 @@ describe('Phase 6 scheduler engine', () => {
     ).toBe(0);
   });
 
-  it('runs snooze repetition until two-hour cutoff', async () => {
+  it('does not schedule a snooze at or after the dose', async () => {
     await upsertReminder({
       circleId: 'circle-1',
       module: 'medication',
@@ -303,34 +303,19 @@ describe('Phase 6 scheduler engine', () => {
         ...medBase,
         times: ['08:00'],
         snoozeMinutes: 15,
-        leadTimeMinutes: 5,
+        leadTimeMinutes: 30,
         startDate: '2026-03-10',
       },
     });
-    clock.set('2026-03-10T03:00:00.000Z');
-    setClock(clock);
-    delivery.reset();
-    await drainDue('cap1');
-
-    // Process snoozes until 2h cutoff (15m interval ⇒ ≤ 8 snoozes)
-    for (let i = 0; i < 10; i++) {
-      clock.advanceMinutes(15);
-      setClock(clock);
-      await drainDue(`cap-${i}`);
+    const dose = await Job.findOne({ itemId: 'med-cap', type: 'med_due' }).lean();
+    const snoozes = await Job.find({ itemId: 'med-cap', type: 'med_snooze' }).lean();
+    expect(snoozes.length).toBeGreaterThan(0);
+    for (const snooze of snoozes) {
+      expect(snooze.fireAt.getTime()).toBeLessThan(dose!.fireAt.getTime());
     }
-    const snoozeSent = await Job.countDocuments({
-      itemId: 'med-cap',
-      type: 'med_snooze',
-      state: 'sent',
-    });
-    expect(snoozeSent).toBeGreaterThan(0);
-    expect(snoozeSent).toBeLessThanOrEqual(8);
-    expect(
-      await Job.countDocuments({ itemId: 'med-cap', type: 'med_snooze', state: 'pending' }),
-    ).toBe(0);
   });
 
-  it('stops snooze at the next scheduled dose', async () => {
+  it('stops snooze scheduling once the dose time is reached', async () => {
     await upsertReminder({
       circleId: 'circle-1',
       module: 'medication',
@@ -343,26 +328,7 @@ describe('Phase 6 scheduler engine', () => {
         startDate: '2026-03-10',
       },
     });
-    clock.set('2026-03-10T03:00:00.000Z'); // 08:00 PKT
-    setClock(clock);
-    delivery.reset();
-    await drainDue('nd1');
-
-    // First snooze at 08:15 is allowed; 08:30 would be next dose cutoff
-    clock.advanceMinutes(15);
-    setClock(clock);
-    await drainDue('nd2');
-    clock.advanceMinutes(15);
-    setClock(clock);
-    await drainDue('nd3');
-
-    const snoozesFor0800 = await Job.find({
-      itemId: 'med-nextdose',
-      type: 'med_snooze',
-      occurrenceKey: { $regex: /-8-0$/ },
-    }).lean();
-    expect(snoozesFor0800.filter((j) => j.state === 'sent')).toHaveLength(1);
-    expect(snoozesFor0800.filter((j) => j.state === 'pending')).toHaveLength(0);
+    expect(await Job.countDocuments({ itemId: 'med-nextdose', type: 'med_snooze' })).toBe(0);
   });
 
   it('skips delivery at send time when medication occurrence is completed', async () => {
@@ -424,6 +390,13 @@ describe('Phase 6 scheduler engine', () => {
     });
     const dues = await Job.find({ itemId: 'med-edit', type: 'med_due', state: 'pending' }).lean();
     expect(dues.every((j) => j.occurrenceKey.includes('-9-0'))).toBe(true);
+    const editedBefore = await Job.findOne({
+      itemId: 'med-edit',
+      type: 'med_before',
+      state: 'pending',
+      occurrenceKey: { $regex: /-9-0$/ },
+    }).lean();
+    expect(editedBefore?.fireAt.toISOString()).toBe('2026-03-10T03:50:00.000Z');
 
     await setMedicationCompletion({
       circleId: 'circle-1',
@@ -442,6 +415,44 @@ describe('Phase 6 scheduler engine', () => {
 
     await deleteReminder({ circleId: 'circle-1', module: 'medication', itemId: 'med-edit' });
     expect(await Job.countDocuments({ itemId: 'med-edit', state: 'pending' })).toBe(0);
+  });
+
+  it('schedules task remind-me-later and sends it immediately when the lead window already started', async () => {
+    await upsertReminder({
+      circleId: 'circle-1',
+      module: 'task',
+      itemId: 'task-lead',
+      body: {
+        title: 'Call clinic',
+        repeatMode: 'doesNotRepeat',
+        date: '2026-03-10',
+        time: '11:00',
+        reminderEnabled: true,
+        notifyFamilyOnMiss: true,
+        leadTimeMinutes: 15,
+        reminderTone: 'gentle_chime',
+      },
+    });
+    const before = await Job.findOne({ itemId: 'task-lead', type: 'task_before' }).lean();
+    expect(before?.fireAt.toISOString()).toBe('2026-03-10T05:45:00.000Z');
+
+    await upsertReminder({
+      circleId: 'circle-1',
+      module: 'task',
+      itemId: 'task-soon',
+      body: {
+        title: 'Soon',
+        repeatMode: 'doesNotRepeat',
+        date: '2026-03-10',
+        time: '07:10',
+        reminderEnabled: true,
+        notifyFamilyOnMiss: true,
+        leadTimeMinutes: 15,
+        reminderTone: 'gentle_chime',
+      },
+    });
+    const soon = await Job.findOne({ itemId: 'task-soon', type: 'task_before' }).lean();
+    expect(soon?.fireAt.toISOString()).toBe('2026-03-10T02:00:00.000Z');
   });
 
   it('stops appointment/task jobs on completed and regenerates on active', async () => {
@@ -664,7 +675,9 @@ describe('Phase 6 scheduler engine', () => {
     setClock(clock);
     delivery.reset();
     await drainDue('pref');
-    expect(delivery.requests.filter((r) => r.type === 'med_missed')).toHaveLength(0);
+    const missed = delivery.requests.filter((r) => r.type === 'med_missed');
+    expect(missed).toHaveLength(1);
+    expect(missed[0]?.recipients.map((r) => r.uid)).toEqual(['owner-1']);
   });
 
   it('worker tick processes due jobs (restart-safe polling)', async () => {

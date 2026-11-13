@@ -149,7 +149,9 @@ describe('Phase 9 E2E integration and reliability', () => {
     }
 
     expect(delivery.requests.filter((r) => r.type === 'med_due')).toHaveLength(0);
-    expect(delivery.requests.filter((r) => r.type === 'med_missed')).toHaveLength(0);
+    const missed = delivery.requests.filter((r) => r.type === 'med_missed');
+    expect(missed).toHaveLength(1);
+    expect(missed[0]?.recipients.map((r) => r.uid)).toEqual(['owner-1']);
   });
 
   it('rejects unauthenticated update and circle delete', async () => {

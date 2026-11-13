@@ -1,7 +1,9 @@
 import { conflict, forbidden, notFound } from '../../shared/errors/AppError.js';
 import { removeMemberFromCircle } from '../../shared/db/cascades.js';
 import { Circle } from '../circle/circle.model.js';
+import { Device } from '../device/device.model.js';
 import { Member } from './member.model.js';
+import { actorIsOwner } from './member.service.js';
 
 export type LeaveCircleResult = {
   uid: string;
@@ -134,7 +136,7 @@ export async function ownerRemoveMember(input: {
   if (!circle) {
     throw notFound('Circle not found');
   }
-  if (circle.ownerUid !== input.actorUid) {
+  if (!(await actorIsOwner(input.circleId, input.actorUid, circle.ownerUid))) {
     throw forbidden('Owner permission required');
   }
   if (input.targetUid === circle.ownerUid) {
@@ -154,6 +156,9 @@ export async function ownerRemoveMember(input: {
       members: 0,
     };
   }
+  if (target.role === 'owner') {
+    throw forbidden('Cannot remove another owner');
+  }
 
   const counts = await removeMemberFromCircle(input.circleId, input.targetUid);
   return {
@@ -163,4 +168,13 @@ export async function ownerRemoveMember(input: {
     devices: counts['devices'] ?? 0,
     members: counts['members'] ?? 0,
   };
+}
+
+/** Logout: drop this phone's token for the authenticated user, in every circle. */
+export async function unregisterMyDevice(input: {
+  uid: string;
+  fcmToken: string;
+}): Promise<{ uid: string; removed: number }> {
+  const result = await Device.deleteMany({ uid: input.uid, fcmToken: input.fcmToken });
+  return { uid: input.uid, removed: result.deletedCount };
 }

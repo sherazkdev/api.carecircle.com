@@ -39,7 +39,7 @@ export const NOTIFICATION_TYPES = [
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
-export const JOB_AUDIENCES = ['owner', 'family', 'members_except_sender'] as const;
+export const JOB_AUDIENCES = ['owner', 'family', 'members', 'members_except_sender'] as const;
 export type JobAudience = (typeof JOB_AUDIENCES)[number];
 
 export const JOB_STATES = ['pending', 'claimed', 'sent', 'skipped', 'failed'] as const;

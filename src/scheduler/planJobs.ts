@@ -43,6 +43,8 @@ function pushOccurrenceJobs(input: {
   beforeType: PlannedJob['type'];
   dueType: PlannedJob['type'];
   missedType: PlannedJob['type'];
+  /** Medication missed dose goes to every member. Other modules stay family-only. */
+  missedAudience?: PlannedJob['audience'];
 }): void {
   const T = input.occurrenceLocal.toUTC();
   const tMs = T.toMillis();
@@ -55,18 +57,18 @@ function pushOccurrenceJobs(input: {
 
   if (input.leadTimeMinutes > 0) {
     const beforeAt = T.minus({ minutes: input.leadTimeMinutes });
-    if (beforeAt.toMillis() > nowMs) {
-      input.jobs.push({
-        circleId: input.circleId,
-        itemId: input.itemId,
-        module: input.module,
-        occurrenceKey: input.occurrenceKey,
-        type: input.beforeType,
-        fireAt: beforeAt.toJSDate(),
-        audience: 'owner',
-        payloadHints: { leadTimeMinutes: input.leadTimeMinutes },
-      });
-    }
+    // If the early reminder is already due but the event is still ahead, send it now.
+    const fireAt = beforeAt.toMillis() > nowMs ? beforeAt.toJSDate() : new Date(nowMs);
+    input.jobs.push({
+      circleId: input.circleId,
+      itemId: input.itemId,
+      module: input.module,
+      occurrenceKey: input.occurrenceKey,
+      type: input.beforeType,
+      fireAt,
+      audience: 'owner',
+      payloadHints: { leadTimeMinutes: input.leadTimeMinutes },
+    });
   }
 
   input.jobs.push({
@@ -88,9 +90,96 @@ function pushOccurrenceJobs(input: {
       occurrenceKey: input.occurrenceKey,
       type: input.missedType,
       fireAt: missedAt,
-      audience: 'family',
+      audience: input.missedAudience ?? 'family',
     });
   }
+}
+
+/** Jobs for one still-upcoming dose: before, due, missed (all members), and pre-dose snoozes. */
+export function planRestoredMedicationOccurrence(input: {
+  circleId: string;
+  itemId: string;
+  occurrenceKey: string;
+  occurrenceLocal: DateTime;
+  data: MedicationData;
+  now: Date;
+}): PlannedJob[] {
+  const jobs: PlannedJob[] = [];
+  pushOccurrenceJobs({
+    jobs,
+    circleId: input.circleId,
+    itemId: input.itemId,
+    module: 'medication',
+    occurrenceKey: input.occurrenceKey,
+    occurrenceLocal: input.occurrenceLocal,
+    leadTimeMinutes: input.data.leadTimeMinutes,
+    now: input.now,
+    beforeType: 'med_before',
+    dueType: 'med_due',
+    missedType: 'med_missed',
+    missedAudience: 'members',
+  });
+  jobs.push(
+    ...planPreDoseSnoozeJobs({
+      circleId: input.circleId,
+      itemId: input.itemId,
+      occurrenceKey: input.occurrenceKey,
+      occurrenceLocal: input.occurrenceLocal,
+      leadTimeMinutes: input.data.leadTimeMinutes,
+      snoozeMinutes: input.data.snoozeMinutes,
+      now: input.now,
+    }),
+  );
+  return jobs;
+}
+
+/**
+ * Owner snoozes sit strictly between the remind-later instant and the dose.
+ * 9:00 dose, 15 min lead, 5 min snooze → 8:50 and 8:55. Nothing at or after 9:00.
+ */
+export function planPreDoseSnoozeJobs(input: {
+  circleId: string;
+  itemId: string;
+  occurrenceKey: string;
+  occurrenceLocal: DateTime;
+  leadTimeMinutes: number;
+  snoozeMinutes: number;
+  now: Date;
+}): PlannedJob[] {
+  if (input.snoozeMinutes <= 0) {
+    return [];
+  }
+  const T = input.occurrenceLocal.toUTC();
+  const tMs = T.toMillis();
+  const nowMs = input.now.getTime();
+  if (tMs <= nowMs) {
+    return [];
+  }
+
+  const jobs: PlannedJob[] = [];
+  let at = T.minus({ minutes: input.leadTimeMinutes }).plus({ minutes: input.snoozeMinutes });
+  let index = 1;
+  while (at.toMillis() < tMs && index <= 48) {
+    if (at.toMillis() >= nowMs) {
+      jobs.push({
+        circleId: input.circleId,
+        itemId: input.itemId,
+        module: 'medication',
+        occurrenceKey: input.occurrenceKey,
+        type: 'med_snooze',
+        fireAt: at.toJSDate(),
+        audience: 'owner',
+        dedupeSuffix: String(index),
+        payloadHints: {
+          snoozeIndex: index,
+          snoozeMinutes: input.snoozeMinutes,
+        },
+      });
+    }
+    at = at.plus({ minutes: input.snoozeMinutes });
+    index += 1;
+  }
+  return jobs;
 }
 
 export function planMedicationJobs(input: {
@@ -121,19 +210,32 @@ export function planMedicationJobs(input: {
     if (!next) {
       continue;
     }
+    const occurrenceKey = toOccurrenceKey(next);
     pushOccurrenceJobs({
       jobs,
       circleId: input.circleId,
       itemId: input.itemId,
       module: 'medication',
-      occurrenceKey: toOccurrenceKey(next),
+      occurrenceKey,
       occurrenceLocal: next,
       leadTimeMinutes: input.data.leadTimeMinutes,
       now: input.now,
       beforeType: 'med_before',
       dueType: 'med_due',
       missedType: 'med_missed',
+      missedAudience: 'members',
     });
+    jobs.push(
+      ...planPreDoseSnoozeJobs({
+        circleId: input.circleId,
+        itemId: input.itemId,
+        occurrenceKey,
+        occurrenceLocal: next,
+        leadTimeMinutes: input.data.leadTimeMinutes,
+        snoozeMinutes: input.data.snoozeMinutes,
+        now: input.now,
+      }),
+    );
   }
   return jobs;
 }
@@ -273,88 +375,6 @@ export function buildPlanForReminder(input: PlanReminderInput): PlannedJob[] {
 export async function planAndInsertReminderJobs(input: PlanReminderInput): Promise<number> {
   const jobs = buildPlanForReminder(input);
   return insertPlannedJobs(jobs);
-}
-
-/** Next chronological dose after occurrence T for snooze cutoff. */
-export function findNextMedicationDoseAfter(input: {
-  timezone: string;
-  data: MedicationData;
-  afterOccurrenceKey: string;
-}): DateTime | null {
-  const current = localPartsFromOccurrenceKey(input.afterOccurrenceKey, input.timezone);
-  if (!current) {
-    return null;
-  }
-  const mode = input.data.scheduleMode === 'daily' ? 'daily' : 'specificDays';
-  let soonest: DateTime | null = null;
-  for (const time of input.data.times) {
-    const { hour, minute } = hhmmToHourMinute(time);
-    const next = findNextLocalOccurrence({
-      zone: input.timezone,
-      after: current.toJSDate(),
-      hour,
-      minute,
-      startDate: input.data.startDate,
-      mode,
-      repeatDays: input.data.repeatDays,
-      exclusive: true,
-    });
-    if (next && (!soonest || next.toMillis() < soonest.toMillis())) {
-      soonest = next;
-    }
-  }
-  return soonest;
-}
-
-export function planNextSnoozeJob(input: {
-  circleId: string;
-  itemId: string;
-  timezone: string;
-  data: MedicationData;
-  occurrenceKey: string;
-  snoozeIndex: number;
-  fromFireAt: Date;
-}): PlannedJob | null {
-  if (input.data.snoozeMinutes <= 0) {
-    return null;
-  }
-  const occurrenceLocal = localPartsFromOccurrenceKey(input.occurrenceKey, input.timezone);
-  if (!occurrenceLocal) {
-    return null;
-  }
-  const T = occurrenceLocal.toUTC();
-  const twoHourCap = T.plus({ hours: 2 });
-  const nextDose = findNextMedicationDoseAfter({
-    timezone: input.timezone,
-    data: input.data,
-    afterOccurrenceKey: input.occurrenceKey,
-  });
-  const cutoff = nextDose
-    ? DateTime.min(twoHourCap, nextDose.toUTC())
-    : twoHourCap;
-
-  const snoozeAt = DateTime.fromJSDate(input.fromFireAt, { zone: 'utc' }).plus({
-    minutes: input.data.snoozeMinutes,
-  });
-  if (snoozeAt.toMillis() >= cutoff.toMillis()) {
-    return null;
-  }
-
-  return {
-    circleId: input.circleId,
-    itemId: input.itemId,
-    module: 'medication',
-    occurrenceKey: input.occurrenceKey,
-    type: 'med_snooze',
-    fireAt: snoozeAt.toJSDate(),
-    audience: 'owner',
-    dedupeSuffix: String(input.snoozeIndex),
-    payloadHints: {
-      snoozeIndex: input.snoozeIndex,
-      snoozeMinutes: input.data.snoozeMinutes,
-      cutoffIso: cutoff.toUTC().toISO(),
-    },
-  };
 }
 
 export function planNextOccurrenceAfterDue(input: {

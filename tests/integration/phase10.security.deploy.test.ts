@@ -231,6 +231,47 @@ describe('Phase 10 security, invites, issuer, deploy gates', () => {
       expect(member?.role).toBe('member');
     });
 
+    it('lets an owner invite someone as owner and promote an existing member', async () => {
+      await seedOwnerCircle('c-own', 'owner-1');
+      await Member.create({
+        circleId: 'c-own',
+        uid: 'member-1',
+        role: 'member',
+        displayName: 'Member',
+        prefs: { ...DEFAULT_MEMBER_PREFS },
+      });
+      const app = createApp();
+
+      const invite = await request(app)
+        .post('/v1/circles/c-own/invites')
+        .set('Authorization', 'Bearer user:owner-1')
+        .send({ role: 'owner', ttlSeconds: 3600 });
+      expect(invite.status).toBe(200);
+      expect(invite.body.data.role).toBe('owner');
+
+      const join = await request(app)
+        .post('/v1/circles/c-own/join')
+        .set('Authorization', 'Bearer user:owner-2')
+        .send({ inviteToken: invite.body.data.inviteToken, displayName: 'Second Owner' });
+      expect(join.status).toBe(200);
+      expect(join.body.data.role).toBe('owner');
+
+      const promote = await request(app)
+        .put('/v1/circles/c-own/members/member-1/role')
+        .set('Authorization', 'Bearer user:owner-2')
+        .send({ role: 'owner' });
+      expect(promote.status).toBe(200);
+      expect(promote.body.data.role).toBe('owner');
+
+      const demoteFounder = await request(app)
+        .put('/v1/circles/c-own/members/owner-1/role')
+        .set('Authorization', 'Bearer user:owner-2')
+        .send({ role: 'member' });
+      expect(demoteFounder.status).toBe(403);
+      const founder = await Member.findOne({ circleId: 'c-own', uid: 'owner-1' }).lean();
+      expect(founder?.role).toBe('owner');
+    });
+
     it('idempotent accept for existing member preserves prefs', async () => {
       await seedOwnerCircle('c-idem', 'owner-1');
       await Member.create({

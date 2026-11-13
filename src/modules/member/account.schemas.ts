@@ -13,3 +13,7 @@ export const deleteMemberParamsSchema = z.object({
 export const deleteMemberQuerySchema = z.object({
   circleId: z.string().trim().min(1),
 });
+
+export const unregisterDeviceBodySchema = z.object({
+  fcmToken: z.string().trim().min(1),
+});

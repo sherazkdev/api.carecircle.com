@@ -97,8 +97,11 @@ export async function registerDevice(input: {
     await member.save();
   }
 
-  // Only the authoritative owner may update circle timezone.
-  if (circle.ownerUid === uid && body.timezone) {
+  const role: 'owner' | 'member' =
+    member.role === 'owner' || circle.ownerUid === uid ? 'owner' : 'member';
+
+  // Any owner may update the circle timezone.
+  if (role === 'owner' && body.timezone) {
     circle.timezone = body.timezone;
     await circle.save();
   }
@@ -113,8 +116,6 @@ export async function registerDevice(input: {
     },
     { upsert: true, returnDocument: 'after' },
   );
-
-  const role: 'owner' | 'member' = circle.ownerUid === uid ? 'owner' : 'member';
 
   return {
     circleId,

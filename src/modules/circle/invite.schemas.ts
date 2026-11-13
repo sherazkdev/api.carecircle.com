@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const createInviteBodySchema = z
   .object({
     ttlSeconds: z.coerce.number().int().positive().max(604_800).optional(),
+    /** Defaults to member. Owner invites keep the inviter as an owner too. */
+    role: z.enum(['owner', 'member']).optional(),
   })
   .strict();
 

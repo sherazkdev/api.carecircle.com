@@ -33,11 +33,7 @@ async function loadMembership(req: Request): Promise<void> {
     throw forbidden('Not a member of this circle');
   }
 
-  if (member.role === 'owner' && circle.ownerUid !== uid) {
-    throw forbidden('Membership role is inconsistent with circle ownership');
-  }
-
-  const role = circle.ownerUid === uid ? 'owner' : 'member';
+  const role = member.role === 'owner' || circle.ownerUid === uid ? 'owner' : 'member';
 
   req.circleMembership = {
     circleId,
@@ -65,8 +61,8 @@ export async function requireCircleMember(
 }
 
 /**
- * Ensures the authenticated user is the circle owner (C1 / owner-only APIs).
- * Authoritative check: `circles.ownerUid === auth.uid` (ignores body.role).
+ * Ensures the authenticated user is an owner of `:circleId`.
+ * Any member with role owner counts. The founding owner stays an owner too.
  */
 export async function requireCircleOwner(
   req: Request,

@@ -8,6 +8,8 @@ export type CircleInvitePayload = {
   jti: string;
   circleId: string;
   inviterUid: string;
+  /** Absent on tokens issued before multi-owner invites. Treat as member. */
+  role?: 'owner' | 'member';
   iat: number;
   exp: number;
 };
@@ -47,6 +49,7 @@ function requireInviteSecret(): string {
 export async function signCircleInviteToken(input: {
   circleId: string;
   inviterUid: string;
+  role?: 'owner' | 'member';
   jti?: string;
   ttlSeconds?: number;
   nowSeconds?: number;
@@ -64,6 +67,7 @@ export async function signCircleInviteToken(input: {
     jti: input.jti ?? randomUUID(),
     circleId: input.circleId,
     inviterUid: input.inviterUid,
+    role: input.role === 'owner' ? 'owner' : 'member',
     iat: now,
     exp: now + ttl,
   };
@@ -102,11 +106,17 @@ function parseAndVerify(token: string, secret: string): CircleInvitePayload {
     typeof p.circleId !== 'string' ||
     typeof p.inviterUid !== 'string' ||
     typeof p.iat !== 'number' ||
-    typeof p.exp !== 'number'
+    typeof p.exp !== 'number' ||
+    (p.role !== undefined && p.role !== 'owner' && p.role !== 'member')
   ) {
     throw forbidden('Invalid invite token claims');
   }
   return p;
+}
+
+/** Signature check only. Does not consume the invite. */
+export function inspectCircleInviteToken(token: string): CircleInvitePayload {
+  return parseAndVerify(token, requireInviteSecret());
 }
 
 export async function verifyAndConsumeCircleInviteToken(input: {

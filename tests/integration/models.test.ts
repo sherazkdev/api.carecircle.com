@@ -399,11 +399,7 @@ describe('Phase 2 database models', () => {
 
       const memberIdx = await listCollectionIndexNames('members');
       expect(memberIdx).toEqual(
-        expect.arrayContaining([
-          'uniq_circle_uid',
-          'idx_circle_role',
-          'uniq_circle_single_owner',
-        ]),
+        expect.arrayContaining(['uniq_circle_uid', 'idx_circle_role']),
       );
 
       const deviceIdx = await listCollectionIndexNames('devices');

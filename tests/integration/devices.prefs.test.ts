@@ -259,6 +259,40 @@ describe('Phase 4 devices and member prefs', () => {
     });
   });
 
+  describe('DELETE /v1/members/me/devices', () => {
+    it('unregisters only this user token across circles', async () => {
+      await seedCircle();
+      await Circle.create({ circleId: 'circle-2', ownerUid: 'owner-1', timezone: 'Asia/Karachi' });
+      await Device.create({
+        circleId: 'circle-1',
+        uid: 'member-1',
+        fcmToken: 'phone-a',
+        platform: 'android',
+      });
+      await Device.create({
+        circleId: 'circle-2',
+        uid: 'member-1',
+        fcmToken: 'phone-a',
+        platform: 'android',
+      });
+      await Device.create({
+        circleId: 'circle-1',
+        uid: 'owner-1',
+        fcmToken: 'owner-phone',
+        platform: 'android',
+      });
+
+      const res = await request(app)
+        .delete('/v1/members/me/devices')
+        .set('Authorization', 'Bearer user:member-1')
+        .send({ fcmToken: 'phone-a' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.removed).toBe(2);
+      expect(await Device.countDocuments({ uid: 'member-1', fcmToken: 'phone-a' })).toBe(0);
+      expect(await Device.countDocuments({ uid: 'owner-1', fcmToken: 'owner-phone' })).toBe(1);
+    });
+  });
+
   describe('cleanup helpers', () => {
     it('removes invalid FCM tokens (R5 helper) and member devices on remove', async () => {
       await seedCircle();

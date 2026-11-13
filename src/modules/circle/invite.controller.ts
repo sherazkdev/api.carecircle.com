@@ -19,6 +19,7 @@ export const postCircleInvite: RequestHandler = async (req, res, next) => {
       circleId,
       actorUid: uid,
       ...(body.ttlSeconds !== undefined ? { ttlSeconds: body.ttlSeconds } : {}),
+      ...(body.role !== undefined ? { role: body.role } : {}),
     });
     sendOk(res, data);
   } catch (err) {

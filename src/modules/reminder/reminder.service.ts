@@ -5,7 +5,8 @@ import { badRequest, notFound } from '../../shared/errors/AppError.js';
 import type { ReminderModule, ReminderStatus } from '../../shared/types/domain.js';
 import { getClock } from '../../scheduler/clock.js';
 import { insertPlannedJobs } from '../../scheduler/jobInsert.js';
-import { planNextSnoozeJob } from '../../scheduler/planJobs.js';
+import { planRestoredMedicationOccurrence } from '../../scheduler/planJobs.js';
+import { localPartsFromOccurrenceKey } from '../../scheduler/timeLocal.js';
 import {
   cancelJobsForOccurrence,
   invalidateAndReplanReminder,
@@ -174,25 +175,26 @@ export async function setMedicationCompletion(input: {
       occurrenceKey: input.occurrenceKey,
     });
   } else {
-    // Undo: never replay past before/due/missed; may schedule future snooze only if still in window.
     await cancelJobsForOccurrence({
       circleId: input.circleId,
       itemId: input.itemId,
       occurrenceKey: input.occurrenceKey,
     });
     const circle = await Circle.findOne({ circleId: input.circleId }).lean();
-    if (circle && data.snoozeMinutes > 0 && data.reminderEnabled) {
-      const snooze = planNextSnoozeJob({
-        circleId: input.circleId,
-        itemId: input.itemId,
-        timezone: circle.timezone,
-        data,
-        occurrenceKey: input.occurrenceKey,
-        snoozeIndex: 1,
-        fromFireAt: getClock().now(),
-      });
-      if (snooze && snooze.fireAt.getTime() > getClock().now().getTime()) {
-        await insertPlannedJobs([snooze]);
+    if (circle && data.reminderEnabled) {
+      const occurrenceLocal = localPartsFromOccurrenceKey(input.occurrenceKey, circle.timezone);
+      if (occurrenceLocal) {
+        const restored = planRestoredMedicationOccurrence({
+          circleId: input.circleId,
+          itemId: input.itemId,
+          occurrenceKey: input.occurrenceKey,
+          occurrenceLocal,
+          data,
+          now: getClock().now(),
+        });
+        if (restored.length > 0) {
+          await insertPlannedJobs(restored);
+        }
       }
     }
   }

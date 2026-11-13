@@ -1,6 +1,5 @@
 import { getLogger } from '../config/logger.js';
 import { Circle } from '../modules/circle/circle.model.js';
-import { Completion } from '../modules/completion/completion.model.js';
 import { removeInvalidFcmToken } from '../modules/device/device.service.js';
 import { hhmmToParts } from '../modules/reminder/occurrence.utils.js';
 import type {
@@ -20,10 +19,7 @@ import { getDeliveryPort } from './delivery.js';
 import { evaluateJobEligibility } from './eligibility.js';
 import { insertPlannedJobs } from './jobInsert.js';
 import type { JobDocument } from './job.model.js';
-import {
-  planNextOccurrenceAfterDue,
-  planNextSnoozeJob,
-} from './planJobs.js';
+import { planNextOccurrenceAfterDue } from './planJobs.js';
 
 function timeFromOccurrenceKey(occurrenceKey: string): string {
   const parts = occurrenceKey.split('-').map(Number);
@@ -54,27 +50,6 @@ async function advanceAfterSuccessfulDue(job: JobDocument): Promise<void> {
 
   if (module === 'medication' && job.type === 'med_due') {
     const med = data as MedicationData;
-    const completed = await Completion.findOne({
-      circleId: job.circleId,
-      itemId: job.itemId,
-      occurrenceKey: job.occurrenceKey,
-      completed: true,
-    }).lean();
-    if (!completed && med.snoozeMinutes > 0 && med.reminderEnabled) {
-      const snooze = planNextSnoozeJob({
-        circleId: job.circleId,
-        itemId: job.itemId,
-        timezone: circle.timezone,
-        data: med,
-        occurrenceKey: job.occurrenceKey,
-        snoozeIndex: 1,
-        fromFireAt: job.fireAt,
-      });
-      if (snooze) {
-        await insertPlannedJobs([snooze]);
-      }
-    }
-
     const timeHhMm = timeFromOccurrenceKey(job.occurrenceKey);
     // Normalize to one of configured times if possible
     const matched = med.times.find((t) => {
@@ -92,25 +67,6 @@ async function advanceAfterSuccessfulDue(job: JobDocument): Promise<void> {
       timeHhMm: matched ?? timeHhMm,
     });
     await insertPlannedJobs(nextJobs);
-    return;
-  }
-
-  if (module === 'medication' && job.type === 'med_snooze') {
-    const med = data as MedicationData;
-    const hints = (job.payloadHints ?? {}) as { snoozeIndex?: number };
-    const nextIndex = (hints.snoozeIndex ?? 1) + 1;
-    const snooze = planNextSnoozeJob({
-      circleId: job.circleId,
-      itemId: job.itemId,
-      timezone: circle.timezone,
-      data: med,
-      occurrenceKey: job.occurrenceKey,
-      snoozeIndex: nextIndex,
-      fromFireAt: job.fireAt,
-    });
-    if (snooze) {
-      await insertPlannedJobs([snooze]);
-    }
     return;
   }
 

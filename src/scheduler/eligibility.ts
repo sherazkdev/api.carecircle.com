@@ -95,10 +95,16 @@ export async function evaluateJobEligibility(
   const members = await Member.find({ circleId: job.circleId }).lean();
   let candidateUids: string[] = [];
 
+  const ownerUids = members
+    .filter((m) => m.role === 'owner' || m.uid === circle.ownerUid)
+    .map((m) => m.uid);
   if (job.audience === 'owner') {
-    candidateUids = [circle.ownerUid];
+    candidateUids = ownerUids.length > 0 ? ownerUids : [circle.ownerUid];
   } else if (job.audience === 'family') {
-    candidateUids = members.filter((m) => m.uid !== circle.ownerUid).map((m) => m.uid);
+    const owners = new Set(ownerUids);
+    candidateUids = members.filter((m) => !owners.has(m.uid)).map((m) => m.uid);
+  } else if (job.audience === 'members_except_sender') {
+    candidateUids = members.map((m) => m.uid);
   } else {
     candidateUids = members.map((m) => m.uid);
   }
