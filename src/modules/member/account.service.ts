@@ -1,5 +1,5 @@
 import { conflict, forbidden, notFound } from '../../shared/errors/AppError.js';
-import { removeMemberFromCircle } from '../../shared/db/cascades.js';
+import { deleteCircleCascade, removeMemberFromCircle } from '../../shared/db/cascades.js';
 import { Circle } from '../circle/circle.model.js';
 import { Device } from '../device/device.model.js';
 import { Member } from './member.model.js';
@@ -20,62 +20,94 @@ export type DeleteMyMembershipsResult = {
   totals: { devices: number; members: number };
 };
 
+type CircleExitPlan =
+  | { circleId: string; action: 'delete-circle' }
+  | { circleId: string; action: 'hand-off'; successorUid: string }
+  | { circleId: string; action: 'remove-member' };
+
 /**
- * C4: ownership validation must complete before any membership/device deletes.
+ * Founding owner exit. Does not change anyone's role.
+ * Alone in the circle → delete the circle. Other members and no second owner → stop.
+ * Another owner already exists → move ownerUid to that owner, then this user can leave.
  */
-async function assertNotOwningCircles(uid: string, circleId?: string): Promise<void> {
-  if (circleId) {
-    const circle = await Circle.findOne({ circleId }).lean();
-    if (!circle) {
-      throw notFound('Circle not found');
-    }
-    if (circle.ownerUid === uid) {
-      throw conflict(
-        'Circle owners must delete the circle before leaving or deleting their account',
-        { reason: 'OWNER_MUST_DELETE_CIRCLE', circleId },
-      );
-    }
-    return;
+async function planCircleExit(uid: string, circleId: string): Promise<CircleExitPlan> {
+  const circle = await Circle.findOne({ circleId }).lean();
+  if (!circle) {
+    return { circleId, action: 'remove-member' };
+  }
+  if (circle.ownerUid !== uid) {
+    return { circleId, action: 'remove-member' };
   }
 
-  const owned = await Circle.find({ ownerUid: uid }).select({ circleId: 1 }).lean();
-  if (owned.length > 0) {
-    throw conflict(
-      'Circle owners must delete owned circles before deleting account data',
-      {
-        reason: 'OWNER_MUST_DELETE_CIRCLE',
-        circleIds: owned.map((c) => c.circleId),
-      },
-    );
+  const others = await Member.find({ circleId, uid: { $ne: uid } })
+    .select({ uid: 1, role: 1 })
+    .sort({ createdAt: 1 })
+    .lean();
+  if (others.length === 0) {
+    return { circleId, action: 'delete-circle' };
   }
+
+  const successor = others.find((member) => member.role === 'owner');
+  if (!successor) {
+    throw conflict('Promote another member to owner before leaving this circle', {
+      reason: 'PROMOTE_MEMBER_BEFORE_LEAVING',
+      circleId,
+    });
+  }
+  return { circleId, action: 'hand-off', successorUid: successor.uid };
 }
 
-/** Leave one circle (non-owner). Idempotent if already gone. */
-export async function leaveCircle(input: {
-  uid: string;
-  circleId: string;
-}): Promise<LeaveCircleResult> {
-  await assertNotOwningCircles(input.uid, input.circleId);
+async function applyCircleExit(uid: string, plan: CircleExitPlan): Promise<LeaveCircleResult> {
+  if (plan.action === 'delete-circle') {
+    const counts = await deleteCircleCascade(plan.circleId);
+    return {
+      uid,
+      circleId: plan.circleId,
+      removed: (counts.circles ?? 0) > 0 || (counts.members ?? 0) > 0,
+      devices: counts.devices ?? 0,
+      members: counts.members ?? 0,
+    };
+  }
 
-  const member = await Member.findOne({ circleId: input.circleId, uid: input.uid }).lean();
+  if (plan.action === 'hand-off') {
+    await Circle.updateOne(
+      { circleId: plan.circleId, ownerUid: uid },
+      { $set: { ownerUid: plan.successorUid } },
+    );
+  }
+
+  const member = await Member.findOne({ circleId: plan.circleId, uid }).lean();
   if (!member) {
     return {
-      uid: input.uid,
-      circleId: input.circleId,
+      uid,
+      circleId: plan.circleId,
       removed: false,
       devices: 0,
       members: 0,
     };
   }
 
-  const counts = await removeMemberFromCircle(input.circleId, input.uid);
+  const counts = await removeMemberFromCircle(plan.circleId, uid);
   return {
-    uid: input.uid,
-    circleId: input.circleId,
+    uid,
+    circleId: plan.circleId,
     removed: true,
     devices: counts['devices'] ?? 0,
     members: counts['members'] ?? 0,
   };
+}
+
+/** Leave one circle. Idempotent if already gone. */
+export async function leaveCircle(input: {
+  uid: string;
+  circleId: string;
+}): Promise<LeaveCircleResult> {
+  const circle = await Circle.findOne({ circleId: input.circleId }).lean();
+  if (!circle) {
+    throw notFound('Circle not found');
+  }
+  const plan = await planCircleExit(input.uid, input.circleId);
+  return applyCircleExit(input.uid, plan);
 }
 
 /**
@@ -86,8 +118,6 @@ export async function deleteMyMemberships(input: {
   uid: string;
   circleId?: string | undefined;
 }): Promise<DeleteMyMembershipsResult> {
-  await assertNotOwningCircles(input.uid, input.circleId);
-
   if (input.circleId) {
     const one = await leaveCircle({ uid: input.uid, circleId: input.circleId });
     return {
@@ -99,23 +129,23 @@ export async function deleteMyMemberships(input: {
   }
 
   const memberships = await Member.find({ uid: input.uid }).lean();
+  const plans: CircleExitPlan[] = [];
+  for (const membership of memberships) {
+    plans.push(await planCircleExit(input.uid, membership.circleId));
+  }
+
   let devices = 0;
   let members = 0;
   const circleIds: string[] = [];
 
-  for (const m of memberships) {
-    // Re-check ownership per circle in case of race with ownership transfer (none today).
-    const circle = await Circle.findOne({ circleId: m.circleId }).lean();
-    if (circle?.ownerUid === input.uid) {
-      throw conflict(
-        'Circle owners must delete owned circles before deleting account data',
-        { reason: 'OWNER_MUST_DELETE_CIRCLE', circleId: m.circleId },
-      );
+  for (const plan of plans) {
+    const counts = await applyCircleExit(input.uid, plan);
+    if (!counts.removed) {
+      continue;
     }
-    const counts = await removeMemberFromCircle(m.circleId, input.uid);
-    devices += counts['devices'] ?? 0;
-    members += counts['members'] ?? 0;
-    circleIds.push(m.circleId);
+    devices += counts.devices;
+    members += counts.members;
+    circleIds.push(plan.circleId);
   }
 
   return {

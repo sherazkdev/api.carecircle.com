@@ -250,15 +250,63 @@ describe('Phase 8 updates and deletion', () => {
       expect(await Circle.findOne({ circleId: 'circle-1' })).not.toBeNull();
     });
 
-    it('owner account delete returns 409 (C4) before any cleanup', async () => {
+    it('blocks account delete when other members exist and nobody else is owner', async () => {
       const beforeMembers = await Member.countDocuments({ uid: 'owner-1' });
       const res = await request(app)
         .delete('/v1/members/me')
         .set('Authorization', 'Bearer user:owner-1');
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('CONFLICT');
+      expect(res.body.error.details.reason).toBe('PROMOTE_MEMBER_BEFORE_LEAVING');
       expect(await Member.countDocuments({ uid: 'owner-1' })).toBe(beforeMembers);
+      expect(await Member.findOne({ uid: 'member-1', circleId: 'circle-1' })).not.toBeNull();
+      expect((await Member.findOne({ uid: 'member-1' }).lean())?.role).toBe('member');
       expect(await Device.countDocuments({ uid: 'owner-1' })).toBeGreaterThan(0);
+    });
+
+    it('deletes the circle when the only owner leaves and nobody else is in it', async () => {
+      await Circle.create({ circleId: 'solo', ownerUid: 'solo-owner', timezone: 'UTC' });
+      await Member.create({
+        circleId: 'solo',
+        uid: 'solo-owner',
+        role: 'owner',
+        displayName: 'Solo',
+        prefs: { medication: true, appointment: true, task: true, updates: true },
+      });
+      await Device.create({
+        circleId: 'solo',
+        uid: 'solo-owner',
+        fcmToken: 'solo-tok',
+        platform: 'android',
+      });
+
+      const res = await request(app)
+        .delete('/v1/members/me')
+        .query({ circleId: 'solo' })
+        .set('Authorization', 'Bearer user:solo-owner');
+      expect(res.status).toBe(200);
+      expect(await Circle.findOne({ circleId: 'solo' })).toBeNull();
+      expect(await Member.countDocuments({ circleId: 'solo' })).toBe(0);
+      expect(await Device.countDocuments({ circleId: 'solo' })).toBe(0);
+    });
+
+    it('lets the founding owner leave after a member was already made owner', async () => {
+      const promoted = await request(app)
+        .put('/v1/circles/circle-1/members/member-1/role')
+        .set('Authorization', 'Bearer user:owner-1')
+        .send({ role: 'owner' });
+      expect(promoted.status).toBe(200);
+
+      const res = await request(app)
+        .delete('/v1/members/me')
+        .set('Authorization', 'Bearer user:owner-1');
+      expect(res.status).toBe(200);
+      expect(await Member.findOne({ circleId: 'circle-1', uid: 'owner-1' })).toBeNull();
+      expect(await Device.countDocuments({ circleId: 'circle-1', uid: 'owner-1' })).toBe(0);
+      const circle = await Circle.findOne({ circleId: 'circle-1' }).lean();
+      expect(circle?.ownerUid).toBe('member-1');
+      expect((await Member.findOne({ circleId: 'circle-1', uid: 'member-1' }).lean())?.role).toBe('owner');
+      expect((await Member.findOne({ circleId: 'circle-1', uid: 'member-2' }).lean())?.role).toBe('member');
     });
 
     it('owner removes member; non-owner and cross-circle denied', async () => {
