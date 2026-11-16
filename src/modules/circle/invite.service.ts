@@ -96,7 +96,11 @@ export async function acceptCircleInvite(input: {
     };
   }
 
-  if (input.uid === circle.ownerUid) {
+  const ownerStillMember = await Member.exists({
+    circleId: input.circleId,
+    uid: circle.ownerUid,
+  });
+  if (input.uid === circle.ownerUid && ownerStillMember) {
     throw conflict('Circle owner is already a member');
   }
 
@@ -104,7 +108,10 @@ export async function acceptCircleInvite(input: {
     token: input.inviteToken,
     expectedCircleId: input.circleId,
   });
-  const joinedRole: 'owner' | 'member' = proof.role === 'owner' ? 'owner' : 'member';
+  // The circle was left with only a pending invite: whoever joins becomes the owner.
+  const claimCircle = !ownerStillMember;
+  const joinedRole: 'owner' | 'member' =
+    claimCircle || proof.role === 'owner' ? 'owner' : 'member';
 
   try {
     const member = await Member.create({
@@ -114,6 +121,9 @@ export async function acceptCircleInvite(input: {
       displayName: input.displayName,
       prefs: { ...DEFAULT_MEMBER_PREFS },
     });
+    if (claimCircle) {
+      await Circle.updateOne({ circleId: input.circleId }, { $set: { ownerUid: member.uid } });
+    }
     return {
       circleId: member.circleId,
       uid: member.uid,

@@ -1,6 +1,7 @@
 import { conflict, forbidden, notFound } from '../../shared/errors/AppError.js';
 import { deleteCircleCascade, removeMemberFromCircle } from '../../shared/db/cascades.js';
 import { Circle } from '../circle/circle.model.js';
+import { CircleInvite } from '../circle/circleInvite.model.js';
 import { Device } from '../device/device.model.js';
 import { Member } from './member.model.js';
 import { actorIsOwner } from './member.service.js';
@@ -44,6 +45,16 @@ async function planCircleExit(uid: string, circleId: string): Promise<CircleExit
     .sort({ createdAt: 1 })
     .lean();
   if (others.length === 0) {
+    const pendingInvite = await CircleInvite.findOne({
+      circleId,
+      expiresAt: { $gt: new Date() },
+    })
+      .select({ _id: 1 })
+      .lean();
+    // An outstanding invite must keep the circle so the invited person can still join.
+    if (pendingInvite) {
+      return { circleId, action: 'remove-member' };
+    }
     return { circleId, action: 'delete-circle' };
   }
 

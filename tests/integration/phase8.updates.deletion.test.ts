@@ -290,6 +290,43 @@ describe('Phase 8 updates and deletion', () => {
       expect(await Device.countDocuments({ circleId: 'solo' })).toBe(0);
     });
 
+    it('keeps the circle when the only owner leaves after sending an invite, and the joiner becomes owner', async () => {
+      await Circle.create({ circleId: 'invited', ownerUid: 'solo-owner', timezone: 'UTC' });
+      await Member.create({
+        circleId: 'invited',
+        uid: 'solo-owner',
+        role: 'owner',
+        displayName: 'Solo',
+        prefs: { medication: true, appointment: true, task: true, updates: true },
+      });
+
+      const invite = await request(app)
+        .post('/v1/circles/invited/invites')
+        .set('Authorization', 'Bearer user:solo-owner')
+        .send({ role: 'member' });
+      expect(invite.status).toBe(200);
+
+      const left = await request(app)
+        .delete('/v1/members/me')
+        .query({ circleId: 'invited' })
+        .set('Authorization', 'Bearer user:solo-owner');
+      expect(left.status).toBe(200);
+      expect(await Circle.findOne({ circleId: 'invited' })).not.toBeNull();
+      expect(await Member.countDocuments({ circleId: 'invited' })).toBe(0);
+
+      const join = await request(app)
+        .post('/v1/circles/invited/join')
+        .set('Authorization', 'Bearer user:new-owner')
+        .send({ inviteToken: invite.body.data.inviteToken, displayName: 'New Owner' });
+      expect(join.status).toBe(200);
+      expect(join.body.data.role).toBe('owner');
+      expect(join.body.data.created).toBe(true);
+      expect((await Circle.findOne({ circleId: 'invited' }).lean())?.ownerUid).toBe('new-owner');
+      expect((await Member.findOne({ circleId: 'invited', uid: 'new-owner' }).lean())?.role).toBe(
+        'owner',
+      );
+    });
+
     it('lets the founding owner leave after a member was already made owner', async () => {
       const promoted = await request(app)
         .put('/v1/circles/circle-1/members/member-1/role')
