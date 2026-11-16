@@ -91,6 +91,7 @@ function pushOccurrenceJobs(input: {
       type: input.missedType,
       fireAt: missedAt,
       audience: input.missedAudience ?? 'family',
+      payloadHints: { missGraceMinutes: getEnv().MISS_GRACE_MINUTES },
     });
   }
 }

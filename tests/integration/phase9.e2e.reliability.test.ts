@@ -138,7 +138,7 @@ describe('Phase 9 E2E integration and reliability', () => {
       .set('Authorization', 'Bearer user:member-1')
       .send({ medication: false, appointment: true, task: true, updates: true });
 
-    clock.set('2026-03-10T03:00:00.000Z');
+    clock.set('2026-03-10T03:05:00.000Z');
     setClock(clock);
     delivery.reset();
 

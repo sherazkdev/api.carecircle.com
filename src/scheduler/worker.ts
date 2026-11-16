@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../config/logger.js';
 import { claimNextJob, findNextWakeAt } from './claimJobs.js';
+import { deferPendingMissedJobs } from './missGrace.js';
 import { getClock } from './clock.js';
 import { delayUntilNextFire } from './pollDelay.js';
 import { processClaimedJob } from './processJob.js';
@@ -44,7 +45,19 @@ export class SchedulerWorker {
       { workerId: this.workerId, pollIntervalMs: this.pollIntervalMs },
       'scheduler worker started',
     );
-    void this.runLoop();
+    void this.bootstrap();
+  }
+
+  /** Move already queued missed jobs out by the grace window before the first claim. */
+  private async bootstrap(): Promise<void> {
+    try {
+      await deferPendingMissedJobs();
+    } catch (err) {
+      getLogger().error({ err }, 'failed to defer pending missed jobs');
+    }
+    if (this.running) {
+      void this.runLoop();
+    }
   }
 
   async stop(): Promise<void> {

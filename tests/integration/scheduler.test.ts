@@ -139,7 +139,7 @@ describe('Phase 6 scheduler engine', () => {
     );
     expect(due08 && before08 && missed08).toBeTruthy();
     expect(before08!.fireAt.getTime()).toBe(due08!.fireAt.getTime() - 10 * 60_000);
-    expect(missed08!.fireAt.getTime()).toBe(due08!.fireAt.getTime()); // C5 grace 0
+    expect(missed08!.fireAt.getTime()).toBe(due08!.fireAt.getTime() + 5 * 60_000);
   });
 
   it('respects specific weekdays and startDate', async () => {
@@ -274,7 +274,7 @@ describe('Phase 6 scheduler engine', () => {
     ]);
     const missed = await Job.findOne({ itemId: 'med-snooze', type: 'med_missed' }).lean();
     expect(missed?.audience).toBe('members');
-    expect(missed?.fireAt.toISOString()).toBe('2026-03-10T04:00:00.000Z'); // 09:00 PKT
+    expect(missed?.fireAt.toISOString()).toBe('2026-03-10T04:05:00.000Z'); // 09:05 PKT
 
     const dueKey = (await Job.findOne({ itemId: 'med-snooze', type: 'med_due' }).lean())!.occurrenceKey;
     await setMedicationCompletion({
@@ -671,7 +671,7 @@ describe('Phase 6 scheduler engine', () => {
         snoozeMinutes: 0,
       },
     });
-    clock.set('2026-03-10T03:00:00.000Z');
+    clock.set('2026-03-10T03:05:00.000Z');
     setClock(clock);
     delivery.reset();
     await drainDue('pref');

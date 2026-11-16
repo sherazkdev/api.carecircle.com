@@ -21,7 +21,7 @@ const envSchema = z.object({
    * Do not log this value.
    */
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
-  MISS_GRACE_MINUTES: z.coerce.number().int().min(0).default(0),
+  MISS_GRACE_MINUTES: z.coerce.number().int().min(0).default(5),
   PROCESS_MODE: z.enum(['api', 'worker', 'all']).default('all'),
   /**
    * fcm = Firebase Admin Messaging (production default).
