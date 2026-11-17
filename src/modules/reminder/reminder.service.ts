@@ -32,6 +32,34 @@ function stripIdentityFields(body: Record<string, unknown>): Record<string, unkn
   return clone;
 }
 
+function sameDays(left?: number[], right?: number[]): boolean {
+  const a = [...(left ?? [])].sort((x, y) => x - y);
+  const b = [...(right ?? [])].sort((x, y) => x - y);
+  return a.length === b.length && a.every((day, index) => day === b[index]);
+}
+
+/** A new date or time means the user wants the reminder again. Title-only edits stay completed. */
+function scheduleMoved(
+  module: 'appointment' | 'task',
+  previous: ReminderData,
+  next: ReminderData,
+): boolean {
+  if (module === 'appointment') {
+    const before = previous as AppointmentData;
+    const after = next as AppointmentData;
+    return before.startsAt !== after.startsAt || before.leadTimeMinutes !== after.leadTimeMinutes;
+  }
+  const before = previous as TaskData;
+  const after = next as TaskData;
+  return (
+    before.date !== after.date ||
+    before.time !== after.time ||
+    before.repeatMode !== after.repeatMode ||
+    before.leadTimeMinutes !== after.leadTimeMinutes ||
+    !sameDays(before.repeatDays, after.repeatDays)
+  );
+}
+
 export async function upsertReminder(input: {
   circleId: string;
   module: ReminderModule;
@@ -54,6 +82,13 @@ export async function upsertReminder(input: {
   let status: ReminderStatus | undefined;
   if (input.module === 'appointment' || input.module === 'task') {
     status = (existing?.status as ReminderStatus | undefined) ?? 'active';
+    if (
+      existing &&
+      status === 'completed' &&
+      scheduleMoved(input.module, existing.data as ReminderData, data)
+    ) {
+      status = 'active';
+    }
   }
 
   const $set: Record<string, unknown> = { data };

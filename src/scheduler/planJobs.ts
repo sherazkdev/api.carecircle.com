@@ -43,7 +43,7 @@ function pushOccurrenceJobs(input: {
   beforeType: PlannedJob['type'];
   dueType: PlannedJob['type'];
   missedType: PlannedJob['type'];
-  /** Medication missed dose goes to every member. Other modules stay family-only. */
+  /** Missed alerts go to every member so the owner phone is included. */
   missedAudience?: PlannedJob['audience'];
 }): void {
   const T = input.occurrenceLocal.toUTC();
@@ -270,6 +270,7 @@ export function planAppointmentJobs(input: {
     beforeType: 'appt_before',
     dueType: 'appt_due',
     missedType: 'appt_missed',
+    missedAudience: 'members',
   });
   return jobs;
 }
@@ -338,6 +339,7 @@ export function planTaskJobs(input: {
     beforeType: 'task_before',
     dueType: 'task_due',
     missedType: 'task_missed',
+    missedAudience: 'members',
   });
   return jobs;
 }

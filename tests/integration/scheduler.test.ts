@@ -496,6 +496,65 @@ describe('Phase 6 scheduler engine', () => {
     expect(await Job.countDocuments({ itemId: 'task-2', state: 'pending' })).toBeGreaterThan(0);
   });
 
+  it('reopens a completed task when the time changes and sends missed alerts to every member', async () => {
+    await upsertReminder({
+      circleId: 'circle-1',
+      module: 'task',
+      itemId: 'task-reopen',
+      body: {
+        title: 'Give Medication',
+        repeatMode: 'doesNotRepeat',
+        date: '2026-03-12',
+        time: '11:00',
+        reminderEnabled: true,
+        notifyFamilyOnMiss: true,
+        leadTimeMinutes: 10,
+        reminderTone: 'gentle_chime',
+      },
+    });
+    await setTaskStatus({ circleId: 'circle-1', itemId: 'task-reopen', status: 'completed' });
+    expect(await Job.countDocuments({ itemId: 'task-reopen', state: 'pending' })).toBe(0);
+
+    const reopened = await upsertReminder({
+      circleId: 'circle-1',
+      module: 'task',
+      itemId: 'task-reopen',
+      body: {
+        title: 'Give Medication',
+        repeatMode: 'doesNotRepeat',
+        date: '2026-03-12',
+        time: '15:45',
+        reminderEnabled: true,
+        notifyFamilyOnMiss: true,
+        leadTimeMinutes: 10,
+        reminderTone: 'gentle_chime',
+      },
+    });
+    expect(reopened.status).toBe('active');
+    const types = (await Job.find({ itemId: 'task-reopen', state: 'pending' }).lean()).map((job) => job.type).sort();
+    expect(types).toEqual(['task_before', 'task_due', 'task_missed']);
+    const missed = await Job.findOne({ itemId: 'task-reopen', type: 'task_missed' }).lean();
+    expect(missed?.audience).toBe('members');
+    expect(missed?.fireAt.toISOString()).toBe('2026-03-12T10:50:00.000Z');
+
+    await upsertReminder({
+      circleId: 'circle-1',
+      module: 'appointment',
+      itemId: 'appt-miss',
+      body: {
+        title: 'Doctor',
+        startsAt: '2026-03-12T16:00:00+05:00',
+        reminderEnabled: true,
+        notifyFamilyOnMiss: true,
+        leadTimeMinutes: 10,
+        reminderTone: 'gentle_chime',
+      },
+    });
+    const apptMissed = await Job.findOne({ itemId: 'appt-miss', type: 'appt_missed' }).lean();
+    expect(apptMissed?.audience).toBe('members');
+    expect(apptMissed?.fireAt.toISOString()).toBe('2026-03-12T11:05:00.000Z');
+  });
+
   it('undo does not replay past due notifications', async () => {
     await upsertReminder({
       circleId: 'circle-1',
