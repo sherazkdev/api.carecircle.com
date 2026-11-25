@@ -21,6 +21,7 @@ import {
   type ReminderData,
   type TaskData,
 } from './reminderData.schemas.js';
+import { isRemindMeFamilyBeforeEnabled } from './reminderToggles.js';
 import { ReminderItem } from './reminderItem.model.js';
 
 function stripIdentityFields(body: Record<string, unknown>): Record<string, unknown> {
@@ -47,7 +48,11 @@ function scheduleMoved(
   if (module === 'appointment') {
     const before = previous as AppointmentData;
     const after = next as AppointmentData;
-    return before.startsAt !== after.startsAt || before.leadTimeMinutes !== after.leadTimeMinutes;
+    return (
+      before.startsAt !== after.startsAt ||
+      before.leadTimeMinutes !== after.leadTimeMinutes ||
+      isRemindMeFamilyBeforeEnabled(before) !== isRemindMeFamilyBeforeEnabled(after)
+    );
   }
   const before = previous as TaskData;
   const after = next as TaskData;
@@ -56,6 +61,7 @@ function scheduleMoved(
     before.time !== after.time ||
     before.repeatMode !== after.repeatMode ||
     before.leadTimeMinutes !== after.leadTimeMinutes ||
+    isRemindMeFamilyBeforeEnabled(before) !== isRemindMeFamilyBeforeEnabled(after) ||
     !sameDays(before.repeatDays, after.repeatDays)
   );
 }

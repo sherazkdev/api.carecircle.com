@@ -5,6 +5,7 @@ import {
   SNOOZE_MINUTES,
   TASK_REPEAT_MODES,
 } from '../../shared/types/domain.js';
+import { normalizeReminderData } from './reminderToggles.js';
 
 const timeHhMm = z
   .string()
@@ -25,7 +26,10 @@ const leadTimeMinutes = z.union([
 const snoozeMinutes = z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(15)]);
 
 const commonToggles = {
+  /** Owner due-time (and snooze) notifications. */
   reminderEnabled: z.boolean(),
+  /** Remind-me-family-before: early alert to every circle member when true. */
+  remindMeFamilyBefore: z.boolean().optional(),
   notifyFamilyOnMiss: z.boolean(),
   leadTimeMinutes,
   reminderTone: z.string().min(1),
@@ -100,18 +104,23 @@ export function parseReminderData(
   module: 'medication' | 'appointment' | 'task',
   data: unknown,
 ): ReminderData {
+  let parsed: ReminderData;
   switch (module) {
     case 'medication':
-      return medicationDataSchema.parse(data);
+      parsed = medicationDataSchema.parse(data);
+      break;
     case 'appointment':
-      return appointmentDataSchema.parse(data);
+      parsed = appointmentDataSchema.parse(data);
+      break;
     case 'task':
-      return taskDataSchema.parse(data);
+      parsed = taskDataSchema.parse(data);
+      break;
     default: {
       const _exhaustive: never = module;
       throw new Error(`Unsupported module: ${String(_exhaustive)}`);
     }
   }
+  return normalizeReminderData(parsed);
 }
 
 /** Re-export enums used by tests / callers */

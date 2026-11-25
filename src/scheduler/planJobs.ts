@@ -6,6 +6,7 @@ import type {
   TaskData,
 } from '../modules/reminder/reminderData.schemas.js';
 import type { ReminderModule, ReminderStatus } from '../shared/types/domain.js';
+import { isRemindMeFamilyBeforeEnabled } from '../modules/reminder/reminderToggles.js';
 import { getClock } from './clock.js';
 import { insertPlannedJobs, type PlannedJob } from './jobInsert.js';
 import {
@@ -39,6 +40,7 @@ function pushOccurrenceJobs(input: {
   occurrenceKey: string;
   occurrenceLocal: DateTime;
   leadTimeMinutes: number;
+  remindMeFamilyBefore: boolean;
   now: Date;
   beforeType: PlannedJob['type'];
   dueType: PlannedJob['type'];
@@ -55,7 +57,7 @@ function pushOccurrenceJobs(input: {
     return;
   }
 
-  if (input.leadTimeMinutes > 0) {
+  if (input.remindMeFamilyBefore && input.leadTimeMinutes > 0) {
     const beforeAt = T.minus({ minutes: input.leadTimeMinutes });
     // If the early reminder is already due but the event is still ahead, send it now.
     const fireAt = beforeAt.toMillis() > nowMs ? beforeAt.toJSDate() : new Date(nowMs);
@@ -66,7 +68,7 @@ function pushOccurrenceJobs(input: {
       occurrenceKey: input.occurrenceKey,
       type: input.beforeType,
       fireAt,
-      audience: 'owner',
+      audience: 'members',
       payloadHints: { leadTimeMinutes: input.leadTimeMinutes },
     });
   }
@@ -114,6 +116,7 @@ export function planRestoredMedicationOccurrence(input: {
     occurrenceKey: input.occurrenceKey,
     occurrenceLocal: input.occurrenceLocal,
     leadTimeMinutes: input.data.leadTimeMinutes,
+    remindMeFamilyBefore: isRemindMeFamilyBeforeEnabled(input.data),
     now: input.now,
     beforeType: 'med_before',
     dueType: 'med_due',
@@ -169,7 +172,7 @@ export function planPreDoseSnoozeJobs(input: {
         occurrenceKey: input.occurrenceKey,
         type: 'med_snooze',
         fireAt: at.toJSDate(),
-        audience: 'owner',
+        audience: 'members',
         dedupeSuffix: String(index),
         payloadHints: {
           snoozeIndex: index,
@@ -220,6 +223,7 @@ export function planMedicationJobs(input: {
       occurrenceKey,
       occurrenceLocal: next,
       leadTimeMinutes: input.data.leadTimeMinutes,
+      remindMeFamilyBefore: isRemindMeFamilyBeforeEnabled(input.data),
       now: input.now,
       beforeType: 'med_before',
       dueType: 'med_due',
@@ -266,6 +270,7 @@ export function planAppointmentJobs(input: {
     occurrenceKey: toOccurrenceKey(local),
     occurrenceLocal: local,
     leadTimeMinutes: input.data.leadTimeMinutes,
+    remindMeFamilyBefore: isRemindMeFamilyBeforeEnabled(input.data),
     now: input.now,
     beforeType: 'appt_before',
     dueType: 'appt_due',
@@ -335,6 +340,7 @@ export function planTaskJobs(input: {
     occurrenceKey: toOccurrenceKey(next),
     occurrenceLocal: next,
     leadTimeMinutes: input.data.leadTimeMinutes,
+    remindMeFamilyBefore: isRemindMeFamilyBeforeEnabled(input.data),
     now: input.now,
     beforeType: 'task_before',
     dueType: 'task_due',

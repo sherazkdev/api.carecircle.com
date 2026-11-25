@@ -228,7 +228,7 @@ describe('Phase 6 scheduler engine', () => {
     expect(await Job.countDocuments({ module: 'task', type: 'task_due' })).toBe(3);
   });
 
-  it('delivers before/due to owner and missed to family independently of reminderEnabled', async () => {
+  it('delivers due to owner, family-before to all members, and missed independently of toggles', async () => {
     await upsertReminder({
       circleId: 'circle-1',
       module: 'medication',
@@ -237,6 +237,7 @@ describe('Phase 6 scheduler engine', () => {
         ...medBase,
         times: ['08:00'],
         reminderEnabled: false,
+        remindMeFamilyBefore: false,
         notifyFamilyOnMiss: true,
         leadTimeMinutes: 10,
         snoozeMinutes: 0,
@@ -257,6 +258,49 @@ describe('Phase 6 scheduler engine', () => {
       ?.recipients.map((r) => r.uid)
       .sort();
     expect(missedUids).toEqual(['member-1', 'owner-1']);
+  });
+
+  it('sends remind-me-family-before and snooze to every circle member', async () => {
+    await upsertReminder({
+      circleId: 'circle-1',
+      module: 'medication',
+      itemId: 'med-family-before',
+      body: {
+        ...medBase,
+        times: ['08:00'],
+        reminderEnabled: true,
+        remindMeFamilyBefore: true,
+        leadTimeMinutes: 15,
+        snoozeMinutes: 5,
+      },
+    });
+    const before = await Job.findOne({ itemId: 'med-family-before', type: 'med_before' }).lean();
+    expect(before?.audience).toBe('members');
+    const snooze = await Job.findOne({ itemId: 'med-family-before', type: 'med_snooze' }).lean();
+    expect(snooze?.audience).toBe('members');
+
+    clock.set('2026-03-10T02:47:00.000Z');
+    setClock(clock);
+    delivery.reset();
+    await drainDue('family-before');
+    const early = delivery.requests.find((r) => r.type === 'med_before');
+    expect(early?.recipients.map((r) => r.uid).sort()).toEqual(['member-1', 'owner-1']);
+
+    await upsertReminder({
+      circleId: 'circle-1',
+      module: 'medication',
+      itemId: 'med-due-only',
+      body: {
+        ...medBase,
+        times: ['08:00'],
+        reminderEnabled: true,
+        remindMeFamilyBefore: false,
+        leadTimeMinutes: 5,
+        snoozeMinutes: 0,
+      },
+    });
+    expect(await Job.countDocuments({ itemId: 'med-due-only', type: 'med_before' })).toBe(0);
+    expect(await Job.countDocuments({ itemId: 'med-due-only', type: 'med_due', state: 'pending' })).toBe(1);
   });
 
   it('plans snoozes between remind-later and the dose, and completion cancels them', async () => {
