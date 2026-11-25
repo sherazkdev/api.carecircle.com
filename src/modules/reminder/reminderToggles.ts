@@ -1,15 +1,15 @@
-import type { AppointmentData, MedicationData, ReminderData, TaskData } from './reminderData.schemas.js';
+import type { MedicationData, ReminderData } from './reminderData.schemas.js';
 
-type Toggled = Pick<MedicationData, 'reminderEnabled' | 'remindMeFamilyBefore'>;
+type Toggled = Pick<MedicationData, 'reminderEnabled' | 'remindFamilyBefore'>;
 
 /** Early reminder toggle; older clients only sent reminderEnabled. */
-export function isRemindMeFamilyBeforeEnabled(data: Toggled): boolean {
-  return data.remindMeFamilyBefore ?? data.reminderEnabled;
+export function isRemindFamilyBeforeEnabled(data: Toggled): boolean {
+  return data.remindFamilyBefore ?? data.reminderEnabled;
 }
 
 export function normalizeReminderData<T extends ReminderData>(data: T): T {
   return {
     ...data,
-    remindMeFamilyBefore: isRemindMeFamilyBeforeEnabled(data),
+    remindFamilyBefore: isRemindFamilyBeforeEnabled(data),
   };
 }

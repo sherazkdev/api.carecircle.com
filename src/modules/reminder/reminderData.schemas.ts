@@ -28,8 +28,8 @@ const snoozeMinutes = z.union([z.literal(0), z.literal(5), z.literal(10), z.lite
 const commonToggles = {
   /** Owner due-time (and snooze) notifications. */
   reminderEnabled: z.boolean(),
-  /** Remind-me-family-before: early alert to every circle member when true. */
-  remindMeFamilyBefore: z.boolean().optional(),
+  /** Remind family before: early alert to every circle member when true. */
+  remindFamilyBefore: z.boolean().optional(),
   notifyFamilyOnMiss: z.boolean(),
   leadTimeMinutes,
   reminderTone: z.string().min(1),
@@ -100,20 +100,33 @@ export type AppointmentData = z.infer<typeof appointmentDataSchema>;
 export type TaskData = z.infer<typeof taskDataSchema>;
 export type ReminderData = MedicationData | AppointmentData | TaskData;
 
+function coerceLegacyReminderBody(data: unknown): unknown {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    return data;
+  }
+  const body = { ...(data as Record<string, unknown>) };
+  if (body.remindFamilyBefore === undefined && typeof body.remindMeFamilyBefore === 'boolean') {
+    body.remindFamilyBefore = body.remindMeFamilyBefore;
+  }
+  delete body.remindMeFamilyBefore;
+  return body;
+}
+
 export function parseReminderData(
   module: 'medication' | 'appointment' | 'task',
   data: unknown,
 ): ReminderData {
+  const coerced = coerceLegacyReminderBody(data);
   let parsed: ReminderData;
   switch (module) {
     case 'medication':
-      parsed = medicationDataSchema.parse(data);
+      parsed = medicationDataSchema.parse(coerced);
       break;
     case 'appointment':
-      parsed = appointmentDataSchema.parse(data);
+      parsed = appointmentDataSchema.parse(coerced);
       break;
     case 'task':
-      parsed = taskDataSchema.parse(data);
+      parsed = taskDataSchema.parse(coerced);
       break;
     default: {
       const _exhaustive: never = module;

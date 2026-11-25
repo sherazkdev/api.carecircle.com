@@ -7,7 +7,7 @@ import type {
   MedicationData,
   TaskData,
 } from '../modules/reminder/reminderData.schemas.js';
-import { isRemindMeFamilyBeforeEnabled } from '../modules/reminder/reminderToggles.js';
+import { isRemindFamilyBeforeEnabled } from '../modules/reminder/reminderToggles.js';
 import { ReminderItem } from '../modules/reminder/reminderItem.model.js';
 import type { NotificationType, ReminderModule } from '../shared/types/domain.js';
 import { type DeliveryRecipient, type DeliveryRequest } from './delivery.js';
@@ -30,7 +30,7 @@ function itemFlagsAllow(
   const notifyFamilyOnMiss = data.notifyFamilyOnMiss;
 
   if (type.endsWith('_before')) {
-    return isRemindMeFamilyBeforeEnabled(data);
+    return isRemindFamilyBeforeEnabled(data);
   }
   if (type.endsWith('_due') || type === 'med_snooze') {
     return reminderEnabled;

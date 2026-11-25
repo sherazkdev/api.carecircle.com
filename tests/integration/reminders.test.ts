@@ -208,18 +208,18 @@ describe('Phase 5 reminder CRUD and completion', () => {
       expect(edited.body.data.data.title).toBe('Follow-up');
     });
 
-    it('stores remindMeFamilyBefore separately from reminderEnabled', async () => {
+    it('stores remindFamilyBefore separately from reminderEnabled', async () => {
       const created = await request(app)
         .put('/v1/circles/circle-1/reminders/medication/med-toggles')
         .set('Authorization', 'Bearer user:owner-1')
         .send({
           ...medPayload,
           reminderEnabled: true,
-          remindMeFamilyBefore: false,
+          remindFamilyBefore: false,
         });
       expect(created.status).toBe(200);
       expect(created.body.data.data.reminderEnabled).toBe(true);
-      expect(created.body.data.data.remindMeFamilyBefore).toBe(false);
+      expect(created.body.data.data.remindFamilyBefore).toBe(false);
     });
 
     it('supports task one-time, daily, and custom schedules', async () => {
