@@ -301,6 +301,17 @@ describe('Phase 6 scheduler engine', () => {
     });
     expect(await Job.countDocuments({ itemId: 'med-due-only', type: 'med_before' })).toBe(0);
     expect(await Job.countDocuments({ itemId: 'med-due-only', type: 'med_due', state: 'pending' })).toBe(1);
+
+    const dueJob = await Job.findOne({ itemId: 'med-family-before', type: 'med_due' }).lean();
+    expect(dueJob?.audience).toBe('members');
+    clock.set('2026-03-10T03:00:00.000Z');
+    setClock(clock);
+    delivery.reset();
+    await drainDue('med-due-members');
+    const due = delivery.requests.find(
+      (r) => r.type === 'med_due' && r.itemId === 'med-family-before',
+    );
+    expect(due?.recipients.map((r) => r.uid).sort()).toEqual(['member-1', 'owner-1']);
   });
 
   it('plans snoozes between remind-later and the dose, and completion cancels them', async () => {

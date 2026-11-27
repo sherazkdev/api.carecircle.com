@@ -47,6 +47,7 @@ function pushOccurrenceJobs(input: {
   missedType: PlannedJob['type'];
   /** Missed alerts go to every member so the owner phone is included. */
   missedAudience?: PlannedJob['audience'];
+  dueAudience?: PlannedJob['audience'];
 }): void {
   const T = input.occurrenceLocal.toUTC();
   const tMs = T.toMillis();
@@ -80,7 +81,7 @@ function pushOccurrenceJobs(input: {
     occurrenceKey: input.occurrenceKey,
     type: input.dueType,
     fireAt: T.toJSDate(),
-    audience: 'owner',
+    audience: input.dueAudience ?? 'owner',
   });
 
   const missedAt = new Date(tMs + missGraceMs());
@@ -122,6 +123,7 @@ export function planRestoredMedicationOccurrence(input: {
     dueType: 'med_due',
     missedType: 'med_missed',
     missedAudience: 'members',
+    dueAudience: 'members',
   });
   jobs.push(
     ...planPreDoseSnoozeJobs({
@@ -229,6 +231,7 @@ export function planMedicationJobs(input: {
       dueType: 'med_due',
       missedType: 'med_missed',
       missedAudience: 'members',
+      dueAudience: 'members',
     });
     jobs.push(
       ...planPreDoseSnoozeJobs({
