@@ -608,6 +608,10 @@ describe('Phase 6 scheduler engine', () => {
     const apptMissed = await Job.findOne({ itemId: 'appt-miss', type: 'appt_missed' }).lean();
     expect(apptMissed?.audience).toBe('members');
     expect(apptMissed?.fireAt.toISOString()).toBe('2026-03-12T11:05:00.000Z');
+    const apptDue = await Job.findOne({ itemId: 'appt-miss', type: 'appt_due' }).lean();
+    expect(apptDue?.audience).toBe('members');
+    const taskDue = await Job.findOne({ itemId: 'task-reopen', type: 'task_due' }).lean();
+    expect(taskDue?.audience).toBe('members');
   });
 
   it('undo does not replay past due notifications', async () => {

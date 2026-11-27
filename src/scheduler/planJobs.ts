@@ -279,6 +279,7 @@ export function planAppointmentJobs(input: {
     dueType: 'appt_due',
     missedType: 'appt_missed',
     missedAudience: 'members',
+    dueAudience: 'members',
   });
   return jobs;
 }
@@ -349,6 +350,7 @@ export function planTaskJobs(input: {
     dueType: 'task_due',
     missedType: 'task_missed',
     missedAudience: 'members',
+    dueAudience: 'members',
   });
   return jobs;
 }
